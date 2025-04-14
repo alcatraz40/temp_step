@@ -97,6 +97,35 @@ if [[ "$OSTYPE" == "linux-gnu"* ]]; then
     else
         echo -e "${GREEN}File watcher limit is already set to a good value: $CURRENT_LIMIT${NC}"
     fi
+    
+    # Check firewall status on Linux
+    echo -e "${YELLOW}Checking firewall status...${NC}"
+    if command_exists ufw; then
+        UFW_STATUS=$(sudo ufw status 2>/dev/null)
+        if [[ "$UFW_STATUS" == *"active"* ]]; then
+            echo -e "${YELLOW}UFW firewall is active. Make sure ports 3000 and 7081 are allowed:${NC}"
+            echo -e "${YELLOW}  sudo ufw allow 3000/tcp${NC}"
+            echo -e "${YELLOW}  sudo ufw allow 7081/tcp${NC}"
+        else
+            echo -e "${GREEN}UFW firewall is not active or not detected.${NC}"
+        fi
+    elif command_exists firewall-cmd; then
+        echo -e "${YELLOW}FirewallD detected. Make sure ports 3000 and 7081 are allowed:${NC}"
+        echo -e "${YELLOW}  sudo firewall-cmd --permanent --add-port=3000/tcp${NC}"
+        echo -e "${YELLOW}  sudo firewall-cmd --permanent --add-port=7081/tcp${NC}"
+        echo -e "${YELLOW}  sudo firewall-cmd --reload${NC}"
+    else
+        echo -e "${YELLOW}No common firewall detected. If you can't access the application externally,${NC}"
+        echo -e "${YELLOW}check if any firewall is blocking ports 3000 and 7081.${NC}"
+    fi
+    
+    # For GCP VMs specifically
+    if [ -f /etc/os-release ] && grep -q "Google" /etc/os-release; then
+        echo -e "${YELLOW}Google Cloud Platform VM detected.${NC}"
+        echo -e "${YELLOW}Make sure you've created firewall rules in the GCP Console to allow:${NC}"
+        echo -e "${YELLOW}  - TCP port 3000 for frontend${NC}"
+        echo -e "${YELLOW}  - TCP port 7081 for backend${NC}"
+    fi
 fi
 
 # Activate Python virtual environment
@@ -181,12 +210,38 @@ sleep 5
 
 # Check if frontend is running
 if ps -p $FRONTEND_PID > /dev/null; then
-    # Detect the port from the logs
-    FRONTEND_PORT=$(grep -o 'http://localhost:[0-9]\+' "$FRONTEND_LOG" | head -1 | cut -d':' -f3 || echo "3000")
+    # Get internal IP
+    INTERNAL_IP=$(hostname -I | awk '{print $1}')
     echo -e "${GREEN}Frontend started successfully with PID $FRONTEND_PID${NC}"
-    echo -e "${GREEN}Frontend is available at http://localhost:$FRONTEND_PORT${NC}"
-    echo -e "${GREEN}For access from other machines, use: http://$(hostname -I | awk '{print $1}'):$FRONTEND_PORT${NC}"
+    echo -e "${GREEN}Frontend is available at:${NC}"
+    echo -e "${GREEN}  - Local: http://localhost:3000${NC}"
+    echo -e "${GREEN}  - Internal network: http://$INTERNAL_IP:3000${NC}"
+    
+    # Try to get external IP for better instructions
+    if command_exists curl; then
+        EXTERNAL_IP=$(curl -s ifconfig.me 2>/dev/null || echo "unknown")
+        if [ "$EXTERNAL_IP" != "unknown" ]; then
+            echo -e "${GREEN}  - External (may need firewall rules): http://$EXTERNAL_IP:3000${NC}"
+        fi
+    fi
+    
     echo -e "${GREEN}Frontend logs are being written to: $FRONTEND_LOG${NC}"
+    
+    # Check if we can access the frontend locally
+    if command_exists curl; then
+        echo -e "${YELLOW}Testing local frontend connection...${NC}"
+        if curl -s --head --fail http://localhost:3000 >/dev/null; then
+            echo -e "${GREEN}✓ Frontend is responding locally${NC}"
+        else
+            echo -e "${RED}✗ Cannot connect to frontend locally. Check logs for errors.${NC}"
+        fi
+    fi
+    
+    # Network connectivity help
+    echo -e "${YELLOW}If you cannot access the application from external machines:${NC}"
+    echo -e "${YELLOW}1. Check that ports 3000 and 7081 are open in your firewall${NC}"
+    echo -e "${YELLOW}2. If using a cloud provider (AWS, GCP, Azure), check security groups/firewall rules${NC}"
+    echo -e "${YELLOW}3. For GCP VMs, create firewall rules for ports 3000 and 7081 in the GCP Console${NC}"
 else
     echo -e "${RED}Error: Frontend failed to start. Check logs at $FRONTEND_LOG${NC}"
 fi
