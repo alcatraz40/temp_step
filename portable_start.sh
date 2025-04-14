@@ -66,6 +66,39 @@ echo -e "${BLUE}====================================================${NC}"
 echo -e "${BLUE}      Starting Dance Learning Application${NC}"
 echo -e "${BLUE}====================================================${NC}"
 
+# Check if running on Linux and increase file watch limit if needed
+if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+    echo -e "${YELLOW}Checking file watcher limits on Linux...${NC}"
+    CURRENT_LIMIT=$(cat /proc/sys/fs/inotify/max_user_watches 2>/dev/null || echo "0")
+    
+    if [ "$CURRENT_LIMIT" -lt "524288" ]; then
+        echo -e "${YELLOW}Current file watcher limit is low ($CURRENT_LIMIT). Attempting to increase...${NC}"
+        
+        if command_exists sudo; then
+            # Try to increase the limit
+            echo -e "${YELLOW}Running: sudo sysctl -w fs.inotify.max_user_watches=524288${NC}"
+            sudo sysctl -w fs.inotify.max_user_watches=524288 >> "$BACKEND_LOG" 2>&1
+            
+            # Check if successful
+            NEW_LIMIT=$(cat /proc/sys/fs/inotify/max_user_watches 2>/dev/null || echo "0")
+            if [ "$NEW_LIMIT" -ge "524288" ]; then
+                echo -e "${GREEN}Successfully increased file watcher limit to $NEW_LIMIT${NC}"
+            else
+                echo -e "${YELLOW}Could not increase limit automatically. You may need to run:${NC}"
+                echo -e "${YELLOW}  echo fs.inotify.max_user_watches=524288 | sudo tee -a /etc/sysctl.conf${NC}"
+                echo -e "${YELLOW}  sudo sysctl -p${NC}"
+                echo -e "${YELLOW}Continuing anyway, but you might encounter ENOSPC errors...${NC}"
+            fi
+        else
+            echo -e "${YELLOW}Sudo not available. Please manually increase the file watcher limit:${NC}"
+            echo -e "${YELLOW}  echo fs.inotify.max_user_watches=524288 | sudo tee -a /etc/sysctl.conf${NC}"
+            echo -e "${YELLOW}  sudo sysctl -p${NC}"
+        fi
+    else
+        echo -e "${GREEN}File watcher limit is already set to a good value: $CURRENT_LIMIT${NC}"
+    fi
+fi
+
 # Activate Python virtual environment
 echo -e "${YELLOW}Activating Python virtual environment...${NC}"
 if [[ "$OSTYPE" == "darwin"* || "$OSTYPE" == "linux-gnu"* ]]; then
@@ -152,6 +185,7 @@ if ps -p $FRONTEND_PID > /dev/null; then
     FRONTEND_PORT=$(grep -o 'http://localhost:[0-9]\+' "$FRONTEND_LOG" | head -1 | cut -d':' -f3 || echo "3000")
     echo -e "${GREEN}Frontend started successfully with PID $FRONTEND_PID${NC}"
     echo -e "${GREEN}Frontend is available at http://localhost:$FRONTEND_PORT${NC}"
+    echo -e "${GREEN}For access from other machines, use: http://$(hostname -I | awk '{print $1}'):$FRONTEND_PORT${NC}"
     echo -e "${GREEN}Frontend logs are being written to: $FRONTEND_LOG${NC}"
 else
     echo -e "${RED}Error: Frontend failed to start. Check logs at $FRONTEND_LOG${NC}"
