@@ -12,3 +12,24 @@ node_modules/*
 *.avi
 *.mov
 *.mp3
+
+# Virtual environments
+venv/
+dance_app_env/
+env/
+.venv/
+.env/
+ENV/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Large files
+*.dylib
+Untitled.ipynb
+cookies.txt
+
+# OS specific
+.DS_Store

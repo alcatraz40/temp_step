@@ -1,6 +1,13 @@
 backend/final0.ckpt filter=lfs diff=lfs merge=lfs -text
-dance_app_env/pyvenv.cfg filter=lfs diff=lfs merge=lfs -text
-dance_app_env/share filter=lfs diff=lfs merge=lfs -text
-dance_app_env/bin filter=lfs diff=lfs merge=lfs -text
-dance_app_env/include filter=lfs diff=lfs merge=lfs -text
-dance_app_env/lib filter=lfs diff=lfs merge=lfs -text
+# Remove virtual environment tracking, as we're excluding it entirely in .gitignore
+# dance_app_env/pyvenv.cfg filter=lfs diff=lfs merge=lfs -text
+# dance_app_env/share filter=lfs diff=lfs merge=lfs -text
+# dance_app_env/bin filter=lfs diff=lfs merge=lfs -text
+# dance_app_env/include filter=lfs diff=lfs merge=lfs -text
+# dance_app_env/lib filter=lfs diff=lfs merge=lfs -text
+
+# Add LFS tracking for model files
+*.pt filter=lfs diff=lfs merge=lfs -text
+models/*.pt filter=lfs diff=lfs merge=lfs -text
+models/*.bin filter=lfs diff=lfs merge=lfs -text
+checkpoints/*.ckpt filter=lfs diff=lfs merge=lfs -text
