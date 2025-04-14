@@ -1,5 +1,6 @@
 backend/static/*
 backend/videos/*
+backend/cookies.txt
 node_modules/*
 *.log
 *.ckpt
