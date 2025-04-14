@@ -6,7 +6,7 @@ import io
 import base64
 import numpy as np
 import matplotlib.pyplot as plt
-from fastapi import FastAPI, HTTPException, BackgroundTasks, Response
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Response, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -131,6 +131,26 @@ def update_progress(video_id, progress, message):
 @app.get("/")
 async def root():
     return {"message": "Dance Learning Backend API"}
+
+@app.get("/api/health")
+async def health_check(request: Request):
+    """Health check endpoint for debugging connectivity issues."""
+    logger.info(f"Health check request received from {request.client.host}")
+    
+    # Return diagnostic information
+    return {
+        "status": "ok",
+        "version": "1.0.0",
+        "client_host": request.client.host,
+        "client_port": request.client.port,
+        "headers": dict(request.headers),
+        "cors_config": {
+            "allow_origins": allowed_origins,
+            "allow_credentials": True,
+            "allow_methods": ["*"],
+            "allow_headers": ["*"],
+        }
+    }
 
 @app.get("/api/progress/{video_id}")
 async def get_progress(video_id: str):
