@@ -1,0 +1,19 @@
+# Core dependencies
+fastapi>=0.95.0
+uvicorn>=0.21.1
+python-dotenv==1.0.1
+pytube>=15.0.0
+pydantic>=1.10.7
+numpy>=1.24.2
+librosa>=0.10.0
+scipy>=1.10.1
+yt-dlp>=2025.2.19
+python-multipart>=0.0.6
+requests>=2.28.2
+matplotlib>=3.7.1
+soundfile>=0.12.1
+pydub>=0.25.1
+
+# ML dependencies
+torch>=2.0.0
+ffmpeg-python>=0.2.0 

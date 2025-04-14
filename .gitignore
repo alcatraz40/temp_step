@@ -1,0 +1,14 @@
+backend/static/*
+backend/videos/*
+node_modules/*
+*.log
+*.ckpt
+*.mp4
+*.gif
+*.png
+*.jpg
+*.jpeg
+*.webp
+*.avi
+*.mov
+*.mp3
