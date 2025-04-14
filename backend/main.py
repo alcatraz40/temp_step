@@ -40,20 +40,16 @@ os.makedirs(VIDEOS_DIR, exist_ok=True)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 app.mount("/videos", StaticFiles(directory=VIDEOS_DIR), name="videos")
 
-# Enhanced CORS configuration
-# Get allowed origins from environment variable or use a default for development
-allowed_origins = os.environ.get("ALLOWED_ORIGINS", "*").split(",")
-logger.info(f"CORS allowed origins: {allowed_origins}")
-
-# Add CORS middleware with more complete configuration
+# CORS Configuration - Allow all origins for development purposes
+logger.info("Setting up CORS middleware with permissive configuration for development")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=allowed_origins,
+    allow_origins=["*"],  # Allow all origins
     allow_credentials=True,
-    allow_methods=["*"],  # Allow all methods
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],  # Specify methods explicitly
     allow_headers=["*"],  # Allow all headers
-    expose_headers=["Content-Type", "Content-Disposition"],  # Headers that browsers can access
-    max_age=600,  # Cache preflight requests for 10 minutes
+    expose_headers=["Content-Type", "Content-Disposition"],
+    max_age=3600,  # Cache preflight requests for 1 hour
 )
 
 # Initialize the simple YouTube downloader
@@ -137,18 +133,33 @@ async def health_check(request: Request):
     """Health check endpoint for debugging connectivity issues."""
     logger.info(f"Health check request received from {request.client.host}")
     
+    # Get request origin for debugging
+    origin = request.headers.get("origin", "Unknown")
+    
     # Return diagnostic information
     return {
         "status": "ok",
         "version": "1.0.0",
-        "client_host": request.client.host,
-        "client_port": request.client.port,
-        "headers": dict(request.headers),
+        "timestamp": asyncio.get_event_loop().time(),
+        "client_info": {
+            "ip": request.client.host,
+            "port": request.client.port,
+            "origin": origin,
+            "user_agent": request.headers.get("user-agent", "Unknown"),
+        },
+        "request_headers": dict(request.headers),
         "cors_config": {
-            "allow_origins": allowed_origins,
+            "allow_origins": ["*"],  # This should match your middleware config
             "allow_credentials": True,
-            "allow_methods": ["*"],
+            "allow_methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
             "allow_headers": ["*"],
+            "max_age": 3600,
+        },
+        "server_info": {
+            "hostname": os.uname().nodename if hasattr(os, 'uname') else "Unknown",
+            "python_version": os.sys.version,
+            "backend_dir": os.path.dirname(os.path.abspath(__file__)),
+            "static_dir": STATIC_DIR,
         }
     }
 
