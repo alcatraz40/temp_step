@@ -868,28 +868,37 @@ function App() {
   }, [player, currentStep, isLooping, steps]);
 
   const analyzeVideo = async (url: string) => {
+    if (isLoading) return;
+
+    setError('');
+    setIsLoading(true);
+    setProgress(0);
+    setStatusMessage('Initializing...');
+    
+    if (pollingIntervalRef.current) {
+      clearInterval(pollingIntervalRef.current);
+      pollingIntervalRef.current = null;
+    }
+
     try {
-      setIsLoading(true);
-      setError('');
-      setIsDummyData(false);
-      setProgress(0);
-      setStatusMessage('Starting analysis...');
+      // Try to extract video ID client-side as well
+      const extractedVideoId = url.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/i)?.[1];
       
-      // Extract video ID from URL before making the API call
-      const videoIdMatch = url.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/);
-      const extractedVideoId = videoIdMatch ? videoIdMatch[1] : '';
-      
-      console.log(`ANALYSIS: Extracted video ID: ${extractedVideoId}`);
-      
-      // Set video ID right away for immediate display
       if (extractedVideoId) {
         setVideoId(extractedVideoId);
       } else {
         console.warn('ANALYSIS: Failed to extract video ID from URL');
       }
       
+      // Construct the direct backend URL like in test.html
+      const host = window.location.hostname;
+      const protocol = window.location.protocol;
+      const directBackendUrl = `${protocol}//${host}:7081`;
+      
       console.log(`ANALYSIS: Sending request to analyze video: ${url}`);
-      const response = await fetch(getApiPath('/api/analyze-video'), {
+      console.log(`ANALYSIS: Using direct backend URL: ${directBackendUrl}`);
+      
+      const response = await fetch(`${directBackendUrl}/api/analyze-video`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -898,8 +907,14 @@ function App() {
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || 'Failed to analyze video');
+        let errorMessage = 'Failed to analyze video';
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.detail || errorMessage;
+        } catch (e) {
+          console.error('ANALYSIS: Error parsing error response:', e);
+        }
+        throw new Error(errorMessage);
       }
 
       const data = await response.json();
@@ -916,8 +931,8 @@ function App() {
       console.log(`ANALYSIS: Starting progress polling for video ID: ${returnedVideoId}`);
       setIsPollingProgress(true);
       
-      // Do an immediate progress check
-      fetchProgress(returnedVideoId);
+      // Do an immediate progress check using the direct backend URL
+      fetchProgressWithUrl(returnedVideoId, directBackendUrl);
       
     } catch (error) {
       console.error('ANALYSIS: Error analyzing video:', error);
@@ -927,6 +942,72 @@ function App() {
       if (pollingIntervalRef.current) {
         clearInterval(pollingIntervalRef.current);
       }
+    }
+  };
+
+  // New function to fetch progress with a specific backend URL
+  const fetchProgressWithUrl = async (videoIdToCheck: string, backendUrl: string) => {
+    try {
+      const response = await fetch(`${backendUrl}/api/progress/${videoIdToCheck}`);
+      
+      // If the server returns an error, handle it
+      if (!response.ok) {
+        console.error(`ANALYSIS: Error checking progress: ${response.status} ${response.statusText}`);
+        return;
+      }
+      
+      const data = await response.json();
+      
+      // Update UI with progress
+      if (data && typeof data.progress === 'number') {
+        setProgress(data.progress);
+        
+        if (data.status_message) {
+          setStatusMessage(data.status_message);
+        }
+        
+        // If we have the complete data
+        if (data.progress === 100) {
+          console.log('ANALYSIS: Processing complete, setting data');
+          setIsLoading(false);
+          setIsPollingProgress(false);
+          
+          // Clear polling interval
+          if (pollingIntervalRef.current) {
+            clearInterval(pollingIntervalRef.current);
+            pollingIntervalRef.current = null;
+          }
+          
+          // Update state with received data
+          if (data.steps) setSteps(data.steps);
+          if (data.duration) setVideoDuration(data.duration);
+          if (data.audio_with_clicks_url) setAudioWithClicksUrl(data.audio_with_clicks_url);
+          if (data.waveform_image) setWaveformImage(data.waveform_image);
+          
+          // If the first step exists, jump to it
+          if (data.steps && data.steps.length > 0) {
+            setCurrentStep(0);
+            if (player) {
+              player.seekTo(data.steps[0].start, true);
+            }
+          }
+          
+          // Reset any errors
+          setError('');
+        } else if (data.progress < 100) {
+          // Continue polling
+          console.log(`ANALYSIS: Progress update - ${data.progress}% - ${data.status_message}`);
+          
+          // Set up polling interval if not already set
+          if (!pollingIntervalRef.current) {
+            pollingIntervalRef.current = setInterval(() => {
+              fetchProgressWithUrl(videoIdToCheck, backendUrl);
+            }, 2000);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('ANALYSIS: Error fetching progress:', error);
     }
   };
 
@@ -1024,28 +1105,33 @@ function App() {
     setStatusMessage('Starting video analysis...');
     
     try {
+      // Construct the direct backend URL like in test.html
+      const host = window.location.hostname;
+      const protocol = window.location.protocol;
+      const directBackendUrl = `${protocol}//${host}:7081`;
+      
       // Step 1: Download audio
       setStatusMessage('Downloading audio...');
       setProgress(10);
-      const response = await fetch(getApiPath(`/api/download_audio?video_id=${videoId}`));
+      const response = await fetch(`${directBackendUrl}/api/download_audio?video_id=${videoId}`);
       const { audio_path } = await response.json();
       
       // Step 2: Separate audio
       setStatusMessage('Separating audio...');
       setProgress(30);
-      const separateResponse = await fetch(getApiPath(`/api/separate_audio?audio_path=${audio_path}`));
+      const separateResponse = await fetch(`${directBackendUrl}/api/separate_audio?audio_path=${audio_path}`);
       const { vocals_path, drums_path } = await separateResponse.json();
       
       // Step 3: Detect beats and downbeats
       setStatusMessage('Detecting beats and downbeats...');
       setProgress(50);
-      const beatsResponse = await fetch(getApiPath(`/api/detect_beats?audio_path=${vocals_path}`));
+      const beatsResponse = await fetch(`${directBackendUrl}/api/detect_beats?audio_path=${vocals_path}`);
       const { beats, downbeats } = await beatsResponse.json();
       
       // Step 4: Generate dance steps
       setStatusMessage('Generating dance steps...');
       setProgress(90);
-      const stepsResponse = await fetch(getApiPath('/api/generate_steps'), {
+      const stepsResponse = await fetch(`${directBackendUrl}/api/generate_steps`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

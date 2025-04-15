@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API Connectivity Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .result {
+            margin-top: 10px;
+            padding: 10px;
+            border: 1px solid #ccc;
+            background-color: #f9f9f9;
+            white-space: pre-wrap;
+        }
+        button {
+            margin: 5px;
+            padding: 8px 16px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+        input {
+            padding: 8px;
+            width: 100%;
+            box-sizing: border-box;
+            margin-bottom: 10px;
+        }
+        .success {
+            color: green;
+        }
+        .error {
+            color: red;
+        }
+    </style>
+</head>
+<body>
+    <h1>API Connectivity Test</h1>
+    
+    <div>
+        <h2>Backend URL:</h2>
+        <input type="text" id="backendUrl" value="http://localhost:7081" />
+    </div>
+    
+    <div>
+        <h2>Test Actions:</h2>
+        <button onclick="testHealth()">Test Health Endpoint</button>
+        <button onclick="testDirectBackendAccess()">Test Direct Backend Access</button>
+        <button onclick="testRelativeUrl()">Test Relative URL</button>
+    </div>
+    
+    <div>
+        <h2>Results:</h2>
+        <div id="result" class="result">Results will appear here...</div>
+    </div>
+    
+    <script>
+        // Get elements
+        const backendUrlInput = document.getElementById('backendUrl');
+        const resultDiv = document.getElementById('result');
+        
+        // Show result with formatting
+        function showResult(message, isError = false) {
+            resultDiv.innerHTML = message;
+            resultDiv.className = isError ? 'result error' : 'result success';
+        }
+        
+        // Test health endpoint
+        async function testHealth() {
+            try {
+                showResult('Testing health endpoint...');
+                const backendUrl = backendUrlInput.value;
+                
+                // Make the request
+                const response = await fetch(`${backendUrl}/api/health`, {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                // Parse and display result
+                const data = await response.json();
+                showResult(`Successfully reached health endpoint!\n\nStatus: ${response.status}\n\nResponse: ${JSON.stringify(data, null, 2)}`);
+            } catch (error) {
+                showResult(`Error: ${error.message}`, true);
+            }
+        }
+        
+        // Test direct backend access
+        async function testDirectBackendAccess() {
+            try {
+                showResult('Testing direct backend access...');
+                const backendUrl = backendUrlInput.value;
+                
+                // Make the request to root endpoint
+                const response = await fetch(`${backendUrl}/`, {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                // Parse and display result
+                const data = await response.json();
+                showResult(`Successfully reached backend root!\n\nStatus: ${response.status}\n\nResponse: ${JSON.stringify(data, null, 2)}`);
+            } catch (error) {
+                showResult(`Error: ${error.message}`, true);
+            }
+        }
+        
+        // Test accessing backend through relative URL
+        async function testRelativeUrl() {
+            try {
+                showResult('Testing relative URL access...');
+                
+                // Make the request to relative URL
+                const response = await fetch('/api/health', {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                // Parse and display result
+                const data = await response.json();
+                showResult(`Successfully reached backend through relative URL!\n\nStatus: ${response.status}\n\nResponse: ${JSON.stringify(data, null, 2)}`);
+            } catch (error) {
+                showResult(`Error: ${error.message}`, true);
+            }
+        }
+    </script>
+</body>
+</html> 

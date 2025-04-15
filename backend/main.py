@@ -40,6 +40,12 @@ os.makedirs(VIDEOS_DIR, exist_ok=True)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 app.mount("/videos", StaticFiles(directory=VIDEOS_DIR), name="videos")
 
+# Add a route to serve static files explicitly
+@app.get("/test")
+async def serve_test_page():
+    """Serve a test HTML page to verify the server is running."""
+    return FileResponse(os.path.join(STATIC_DIR, "test.html"))
+
 # CORS Configuration - Allow all origins for development purposes
 logger.info("Setting up CORS middleware with permissive configuration for development")
 app.add_middleware(
@@ -47,10 +53,18 @@ app.add_middleware(
     allow_origins=["*"],  # Allow all origins
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],  # Specify methods explicitly
-    allow_headers=["*"],  # Allow all headers
+    allow_headers=["Content-Type", "Content-Disposition", "Accept", "Authorization", "X-Requested-With"],  # Allow common headers
     expose_headers=["Content-Type", "Content-Disposition"],
     max_age=3600,  # Cache preflight requests for 1 hour
 )
+
+# Create an explicit route for handling OPTIONS preflight requests
+@app.options("/{rest_of_path:path}")
+async def options_route(rest_of_path: str, request: Request):
+    """Global OPTIONS handler to support preflight CORS requests."""
+    logger.info(f"Preflight request received for path: /{rest_of_path}")
+    # The response will be handled by the CORS middleware
+    return {}
 
 # Initialize the simple YouTube downloader
 youtube_downloader = SimpleYouTubeDownloader()
