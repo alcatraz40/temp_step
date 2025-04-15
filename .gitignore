@@ -4,6 +4,7 @@ backend/cookies.txt
 node_modules/*
 *.log
 *.ckpt
+!backend/final0.ckpt
 *.mp4
 *.gif
 *.png
@@ -33,4 +34,4 @@ Untitled.ipynb
 cookies.txt
 
 # OS specific
-.DS_Store
+.DS_Storefinal0.kpt
