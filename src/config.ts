@@ -34,5 +34,12 @@ export const APP_NAME = 'Dance Beat Analyzer';
 export const getApiPath = (path: string): string => {
   // Make sure path starts with / and remove any double slashes
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  
+  // If path already includes /api, don't add it again
+  if (normalizedPath.startsWith('/api/')) {
+    // Just use the plain endpoint with API_URL
+    return `${API_URL}${normalizedPath.substring(4)}`;
+  }
+  
   return `${API_URL}${normalizedPath}`;
 }; 

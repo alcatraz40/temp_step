@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API Connectivity Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.5;
+        }
+        .result {
+            margin-top: 10px;
+            padding: 10px;
+            border: 1px solid #ccc;
+            background-color: #f9f9f9;
+            white-space: pre-wrap;
+            overflow-x: auto;
+        }
+        button {
+            margin: 5px;
+            padding: 8px 16px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+        input {
+            padding: 8px;
+            width: 100%;
+            box-sizing: border-box;
+            margin-bottom: 10px;
+        }
+        .success {
+            color: green;
+            border-left: 5px solid green;
+        }
+        .error {
+            color: red;
+            border-left: 5px solid red;
+        }
+        .section {
+            margin-bottom: 20px;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        h3 {
+            margin-top: 0;
+        }
+        .log-entry {
+            margin: 5px 0;
+            font-family: monospace;
+        }
+        .diagnostics {
+            background-color: #f0f8ff;
+            padding: 10px;
+            margin-top: 20px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 10px 0;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+    </style>
+</head>
+<body>
+    <h1>API Connectivity Test</h1>
+    
+    <div class="section">
+        <h2>Connection Information</h2>
+        <div id="connection-info"></div>
+        
+        <h3>Backend URL:</h3>
+        <input type="text" id="backendUrl" value="" placeholder="Enter backend URL or use auto-detect" />
+        <button onclick="detectBackendUrl()">Auto-detect Backend URL</button>
+    </div>
+    
+    <div class="section">
+        <h2>Test Actions:</h2>
+        <button onclick="testHealth()">Test Health Endpoint</button>
+        <button onclick="testDirectBackendAccess()">Test Direct Backend Access</button>
+        <button onclick="testRelativeUrl()">Test Relative URL</button>
+        <button onclick="testAnalyzeVideo()">Test Analyze Video</button>
+        <button onclick="testCorsHeaders()">Test CORS Headers</button>
+    </div>
+    
+    <div class="section">
+        <h2>Results:</h2>
+        <div id="results"></div>
+    </div>
+    
+    <div class="section">
+        <h2>Request Logs:</h2>
+        <div id="requestLogs"></div>
+        <button onclick="clearLogs()">Clear Logs</button>
+    </div>
+    
+    <div class="section diagnostics">
+        <h2>Browser & Network Diagnostics</h2>
+        <div id="diagnostics"></div>
+    </div>
+    
+    <script>
+        // Initialize variables
+        let logs = [];
+        const backendUrlInput = document.getElementById('backendUrl');
+        const resultsDiv = document.getElementById('results');
+        const requestLogsDiv = document.getElementById('requestLogs');
+        const connectionInfoDiv = document.getElementById('connection-info');
+        const diagnosticsDiv = document.getElementById('diagnostics');
+        
+        // Detect the backend URL automatically
+        function detectBackendUrl() {
+            // Get the current hostname
+            const hostname = window.location.hostname;
+            const protocol = window.location.protocol;
+            const port = window.location.port;
+            
+            // Generate different options
+            const sameDomainOption = `${protocol}//${hostname}:7081`;
+            const localhostOption = 'http://localhost:7081';
+            const currentOriginOption = `${protocol}//${hostname}${port ? ':' + port : ''}`;
+            
+            addLog(`Auto-detecting backend URL...`);
+            addLog(`Current origin: ${window.location.origin}`);
+            addLog(`Hostname: ${hostname}, Protocol: ${protocol}, Port: ${port || '(default)'}`);
+            
+            // Update the input field with the domain option
+            backendUrlInput.value = sameDomainOption;
+            
+            // Show connection info
+            updateConnectionInfo();
+            
+            return sameDomainOption;
+        }
+        
+        // Update connection information display
+        function updateConnectionInfo() {
+            const connectionDetails = `
+                <table>
+                    <tr>
+                        <th>Property</th>
+                        <th>Value</th>
+                    </tr>
+                    <tr>
+                        <td>Current Origin</td>
+                        <td>${window.location.origin}</td>
+                    </tr>
+                    <tr>
+                        <td>Hostname</td>
+                        <td>${window.location.hostname}</td>
+                    </tr>
+                    <tr>
+                        <td>Protocol</td>
+                        <td>${window.location.protocol}</td>
+                    </tr>
+                    <tr>
+                        <td>Port</td>
+                        <td>${window.location.port || '(default)'}</td>
+                    </tr>
+                    <tr>
+                        <td>Backend URL</td>
+                        <td>${backendUrlInput.value || 'Not set - click Auto-detect'}</td>
+                    </tr>
+                </table>
+            `;
+            
+            connectionInfoDiv.innerHTML = connectionDetails;
+        }
+        
+        // Add log entry
+        function addLog(message) {
+            const timestamp = new Date().toISOString();
+            logs.push(`[${timestamp}] ${message}`);
+            updateLogs();
+        }
+        
+        // Update logs display
+        function updateLogs() {
+            requestLogsDiv.innerHTML = logs.map(log => `<div class="log-entry">${log}</div>`).join('');
+            requestLogsDiv.scrollTop = requestLogsDiv.scrollHeight;
+        }
+        
+        // Clear logs
+        function clearLogs() {
+            logs = [];
+            updateLogs();
+        }
+        
+        // Show result with formatting
+        function showResult(message, isError = false) {
+            const resultDiv = document.createElement('div');
+            resultDiv.className = isError ? 'result error' : 'result success';
+            resultDiv.innerHTML = message;
+            
+            // Add to the top
+            if (resultsDiv.firstChild) {
+                resultsDiv.insertBefore(resultDiv, resultsDiv.firstChild);
+            } else {
+                resultsDiv.appendChild(resultDiv);
+            }
+        }
+        
+        // Get backend URL from input or auto-detect
+        function getBackendUrl() {
+            let url = backendUrlInput.value.trim();
+            if (!url) {
+                url = detectBackendUrl();
+            }
+            return url;
+        }
+        
+        // Pretty print JSON
+        function formatJson(json) {
+            try {
+                return JSON.stringify(json, null, 2);
+            } catch (e) {
+                return json;
+            }
+        }
+        
+        // Test health endpoint
+        async function testHealth() {
+            try {
+                const backendUrl = getBackendUrl();
+                addLog(`Testing health endpoint at ${backendUrl}/api/health`);
+                showResult(`Testing health endpoint at ${backendUrl}/api/health...`);
+                
+                const startTime = Date.now();
+                
+                // Make the request with credentials
+                const response = await fetch(`${backendUrl}/api/health`, {
+                    method: 'GET',
+                    credentials: 'include',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const endTime = Date.now();
+                const responseTime = endTime - startTime;
+                
+                // Check the response and headers
+                const headers = {};
+                response.headers.forEach((value, name) => {
+                    headers[name] = value;
+                });
+                
+                // Parse and display result
+                const data = await response.json();
+                
+                const resultHtml = `
+                    <h3>Health Endpoint Response (${responseTime}ms)</h3>
+                    <strong>Status:</strong> ${response.status} ${response.statusText}<br>
+                    <strong>Headers:</strong><pre>${formatJson(headers)}</pre>
+                    <strong>Data:</strong><pre>${formatJson(data)}</pre>
+                `;
+                
+                showResult(resultHtml);
+                addLog(`Health endpoint test successful: ${response.status}`);
+            } catch (error) {
+                const errorHtml = `
+                    <h3>Health Endpoint Error</h3>
+                    <strong>Error:</strong> ${error.message}<br>
+                    <strong>Stack:</strong><pre>${error.stack}</pre>
+                `;
+                
+                showResult(errorHtml, true);
+                addLog(`Health endpoint test failed: ${error.message}`);
+            }
+        }
+        
+        // Test direct backend access
+        async function testDirectBackendAccess() {
+            try {
+                const backendUrl = getBackendUrl();
+                addLog(`Testing direct backend access at ${backendUrl}/`);
+                showResult(`Testing direct backend access at ${backendUrl}/...`);
+                
+                const startTime = Date.now();
+                
+                // Make the request
+                const response = await fetch(`${backendUrl}/`, {
+                    method: 'GET',
+                    credentials: 'include',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const endTime = Date.now();
+                const responseTime = endTime - startTime;
+                
+                // Check the response and headers
+                const headers = {};
+                response.headers.forEach((value, name) => {
+                    headers[name] = value;
+                });
+                
+                // Parse and display result
+                const data = await response.json();
+                
+                const resultHtml = `
+                    <h3>Direct Backend Access Response (${responseTime}ms)</h3>
+                    <strong>Status:</strong> ${response.status} ${response.statusText}<br>
+                    <strong>Headers:</strong><pre>${formatJson(headers)}</pre>
+                    <strong>Data:</strong><pre>${formatJson(data)}</pre>
+                `;
+                
+                showResult(resultHtml);
+                addLog(`Direct backend test successful: ${response.status}`);
+            } catch (error) {
+                const errorHtml = `
+                    <h3>Direct Backend Access Error</h3>
+                    <strong>Error:</strong> ${error.message}<br>
+                    <strong>Stack:</strong><pre>${error.stack}</pre>
+                `;
+                
+                showResult(errorHtml, true);
+                addLog(`Direct backend test failed: ${error.message}`);
+            }
+        }
+        
+        // Test accessing backend through relative URL
+        async function testRelativeUrl() {
+            try {
+                addLog(`Testing relative URL access at /api/health`);
+                showResult(`Testing relative URL access at /api/health...`);
+                
+                const startTime = Date.now();
+                
+                // Make the request
+                const response = await fetch('/api/health', {
+                    method: 'GET',
+                    credentials: 'include',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const endTime = Date.now();
+                const responseTime = endTime - startTime;
+                
+                // Check the response and headers
+                const headers = {};
+                response.headers.forEach((value, name) => {
+                    headers[name] = value;
+                });
+                
+                // Parse and display result
+                const data = await response.json();
+                
+                const resultHtml = `
+                    <h3>Relative URL Access Response (${responseTime}ms)</h3>
+                    <strong>Status:</strong> ${response.status} ${response.statusText}<br>
+                    <strong>Headers:</strong><pre>${formatJson(headers)}</pre>
+                    <strong>Data:</strong><pre>${formatJson(data)}</pre>
+                `;
+                
+                showResult(resultHtml);
+                addLog(`Relative URL test successful: ${response.status}`);
+            } catch (error) {
+                const errorHtml = `
+                    <h3>Relative URL Access Error</h3>
+                    <strong>Error:</strong> ${error.message}<br>
+                    <strong>Stack:</strong><pre>${error.stack}</pre>
+                `;
+                
+                showResult(errorHtml, true);
+                addLog(`Relative URL test failed: ${error.message}`);
+            }
+        }
+        
+        // Test analyze video endpoint
+        async function testAnalyzeVideo() {
+            try {
+                const backendUrl = getBackendUrl();
+                const testUrl = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"; // Test video URL
+                addLog(`Testing analyze-video endpoint at ${backendUrl}/api/analyze-video with URL: ${testUrl}`);
+                showResult(`Testing analyze-video endpoint at ${backendUrl}/api/analyze-video...`);
+                
+                const startTime = Date.now();
+                
+                // Make the request
+                const response = await fetch(`${backendUrl}/api/analyze-video`, {
+                    method: 'POST',
+                    credentials: 'include',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json'
+                    },
+                    body: JSON.stringify({ url: testUrl })
+                });
+                
+                const endTime = Date.now();
+                const responseTime = endTime - startTime;
+                
+                // Check the response and headers
+                const headers = {};
+                response.headers.forEach((value, name) => {
+                    headers[name] = value;
+                });
+                
+                // Parse and display result
+                const data = await response.json();
+                
+                const resultHtml = `
+                    <h3>Analyze Video Response (${responseTime}ms)</h3>
+                    <strong>Status:</strong> ${response.status} ${response.statusText}<br>
+                    <strong>Headers:</strong><pre>${formatJson(headers)}</pre>
+                    <strong>Data:</strong><pre>${formatJson(data)}</pre>
+                `;
+                
+                showResult(resultHtml);
+                addLog(`Analyze video test successful: ${response.status}`);
+            } catch (error) {
+                const errorHtml = `
+                    <h3>Analyze Video Error</h3>
+                    <strong>Error:</strong> ${error.message}<br>
+                    <strong>Stack:</strong><pre>${error.stack}</pre>
+                `;
+                
+                showResult(errorHtml, true);
+                addLog(`Analyze video test failed: ${error.message}`);
+            }
+        }
+        
+        // Test CORS headers
+        async function testCorsHeaders() {
+            try {
+                const backendUrl = getBackendUrl();
+                addLog(`Testing CORS headers at ${backendUrl}/api/health with OPTIONS`);
+                showResult(`Testing CORS headers at ${backendUrl}/api/health with OPTIONS...`);
+                
+                // Make preflight OPTIONS request
+                const response = await fetch(`${backendUrl}/api/health`, {
+                    method: 'OPTIONS',
+                    credentials: 'include',
+                    headers: {
+                        'Origin': window.location.origin,
+                        'Access-Control-Request-Method': 'GET',
+                        'Access-Control-Request-Headers': 'Content-Type'
+                    }
+                });
+                
+                // Check the response headers
+                const headers = {};
+                response.headers.forEach((value, name) => {
+                    headers[name] = value;
+                });
+                
+                const corsHeaders = [
+                    'access-control-allow-origin',
+                    'access-control-allow-methods',
+                    'access-control-allow-headers',
+                    'access-control-allow-credentials',
+                    'access-control-max-age'
+                ];
+                
+                const corsStatus = corsHeaders.map(header => ({
+                    header,
+                    present: header in headers,
+                    value: headers[header] || 'Not present'
+                }));
+                
+                const corsTable = `
+                    <table>
+                        <tr>
+                            <th>CORS Header</th>
+                            <th>Present</th>
+                            <th>Value</th>
+                        </tr>
+                        ${corsStatus.map(row => `
+                            <tr>
+                                <td>${row.header}</td>
+                                <td>${row.present ? '✅' : '❌'}</td>
+                                <td>${row.value}</td>
+                            </tr>
+                        `).join('')}
+                    </table>
+                `;
+                
+                const resultHtml = `
+                    <h3>CORS Headers Test</h3>
+                    <strong>Status:</strong> ${response.status} ${response.statusText}<br>
+                    <strong>Your Origin:</strong> ${window.location.origin}<br>
+                    <strong>CORS Headers:</strong>
+                    ${corsTable}
+                    <strong>All Headers:</strong><pre>${formatJson(headers)}</pre>
+                `;
+                
+                showResult(resultHtml);
+                addLog(`CORS headers test completed: ${response.status}`);
+            } catch (error) {
+                const errorHtml = `
+                    <h3>CORS Headers Test Error</h3>
+                    <strong>Error:</strong> ${error.message}<br>
+                    <strong>Stack:</strong><pre>${error.stack}</pre>
+                `;
+                
+                showResult(errorHtml, true);
+                addLog(`CORS headers test failed: ${error.message}`);
+            }
+        }
+        
+        // Run network diagnostics
+        function runDiagnostics() {
+            // Browser info
+            const browserInfo = {
+                userAgent: navigator.userAgent,
+                platform: navigator.platform,
+                languages: navigator.languages,
+                cookiesEnabled: navigator.cookieEnabled,
+                doNotTrack: navigator.doNotTrack,
+                online: navigator.onLine
+            };
+            
+            // Network info
+            const networkInfo = {
+                type: 'connection' in navigator ? navigator.connection.type : 'unknown',
+                downlink: 'connection' in navigator ? navigator.connection.downlink : 'unknown',
+                rtt: 'connection' in navigator ? navigator.connection.rtt : 'unknown',
+                saveData: 'connection' in navigator ? navigator.connection.saveData : 'unknown'
+            };
+            
+            // Create diagnostics output
+            const diagnosticsHtml = `
+                <h3>Browser Information</h3>
+                <pre>${formatJson(browserInfo)}</pre>
+                
+                <h3>Network Information</h3>
+                <pre>${formatJson(networkInfo)}</pre>
+                
+                <h3>CORS Testing Tips</h3>
+                <ul>
+                    <li>Check that your backend allows the origin: <code>${window.location.origin}</code></li>
+                    <li>Ensure your API routes include proper CORS headers for non-GET requests</li>
+                    <li>For testing from external IPs, the backend must be configured to allow those specific IPs or use wildcards</li>
+                    <li>If using AWS, Azure, or GCP, check your firewall and security group settings</li>
+                </ul>
+            `;
+            
+            diagnosticsDiv.innerHTML = diagnosticsHtml;
+        }
+        
+        // Initialize on page load
+        window.onload = function() {
+            detectBackendUrl();
+            runDiagnostics();
+            addLog('Page loaded. Ready for testing.');
+            
+            // Try to detect if we're behind a proxy
+            if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+                addLog(`Not on localhost - backend and frontend might be on different origins`);
+                showResult(`
+                    <h3>External Access Detected</h3>
+                    <p>You appear to be accessing this app from a non-localhost address (${window.location.hostname}).</p>
+                    <p>This may require proper CORS configuration on the backend.</p>
+                    <p>Try clicking "Test CORS Headers" to check configuration.</p>
+                `, false);
+            }
+        };
+    </script>
+</body>
+</html> 
