@@ -361,7 +361,6 @@ These instructions are designed to help you set up and run the application on an
 
 - If the setup fails with Python version errors, ensure you have Python 3.13+ installed
 - Check the logs in the `logs` directory for detailed error messages
-- If the model download fails, you can manually download it from: https://github.com/CPJKU/beat_this/raw/main/checkpoints/final0.ckpt
 
 ### Moving to a VM
 

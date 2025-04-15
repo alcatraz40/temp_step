@@ -122,10 +122,6 @@ fi
 echo -e "${YELLOW}Installing beat_this from GitHub...${NC}"
 pip install https://github.com/CPJKU/beat_this/archive/main.zip
 
-# Download model checkpoint
-echo -e "${YELLOW}Downloading model checkpoint...${NC}"
-python download_model.py "$MODELS_DIR"
-
 # Install frontend dependencies
 echo -e "${YELLOW}Installing frontend dependencies...${NC}"
 cd "$APP_DIR" || exit 1

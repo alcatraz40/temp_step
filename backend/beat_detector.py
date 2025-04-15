@@ -38,12 +38,11 @@ logging.basicConfig(level=logging.INFO,
 logger = logging.getLogger('beat_detector')
 
 class BeatDetector:
-    def __init__(self, tolerance=0.1, checkpoint_path=None):
+    def __init__(self, tolerance=0.1):
         """Initialize the beat detector with audio separation model
         
         Args:
             tolerance: Global tolerance value for beat detection (in seconds)
-            checkpoint_path: Path to the beat_this model checkpoint
         """
         logger.info("Initializing BeatDetector")
         
@@ -69,39 +68,10 @@ class BeatDetector:
         # Initialize the beat detection model if available
         self.beat_this_available = BEAT_THIS_AVAILABLE
         
-        # If checkpoint_path is not provided, look in standard locations
-        if checkpoint_path is None:
-            # Try to find the model in the models directory
-            models_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models")
-            default_checkpoint = os.path.join(models_dir, "final0.ckpt")
-            
-            if os.path.exists(default_checkpoint):
-                checkpoint_path = default_checkpoint
-                logger.info(f"Found model checkpoint at {checkpoint_path}")
-            else:
-                # Try other possible locations
-                possible_locations = [
-                    "final0.ckpt",  # Current directory
-                    os.path.join(os.path.dirname(os.path.abspath(__file__)), "final0.ckpt"),  # Backend directory
-                    os.path.expanduser("~/.beat_this/final0.ckpt"),  # User's home directory
-                ]
-                
-                for loc in possible_locations:
-                    if os.path.exists(loc):
-                        checkpoint_path = loc
-                        logger.info(f"Found model checkpoint at {checkpoint_path}")
-                        break
-                
-                if checkpoint_path is None:
-                    logger.warning("No model checkpoint found. ML-based beat detection will not be available.")
-                    self.beat_this_available = False
-        
-        self.checkpoint_path = checkpoint_path
-        
-        if self.beat_this_available and self.checkpoint_path:
+        if self.beat_this_available:
             try:
-                logger.info(f"Loading beat_this model with checkpoint: {checkpoint_path}")
-                self.beat_detector = File2Beats(checkpoint_path=checkpoint_path, dbn=False)
+                logger.info("Loading beat_this model")
+                self.beat_detector = File2Beats(dbn=False)
                 logger.info("beat_this model loaded successfully")
             except Exception as e:
                 logger.error(f"Error loading beat_this model: {e}")

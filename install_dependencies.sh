@@ -50,10 +50,6 @@ pip install https://github.com/CPJKU/beat_this/archive/main.zip
 echo "Verifying installation..."
 python -c "from beat_this.inference import File2Beats; print('beat_this library successfully installed!')" || echo "Error: beat_this library installation failed"
 
-# Download the model checkpoint
-echo "Downloading model checkpoint..."
-python download_model.py
-
 echo "Dependencies installation complete!"
 echo "You can now run the dance app with the new beat detection model."
 echo "To start the app, run: ./start_all.sh" 
