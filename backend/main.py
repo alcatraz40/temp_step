@@ -132,11 +132,39 @@ def extract_video_id(url: str) -> str:
     logger.error(f"Could not extract video ID from URL: {url}")
     raise ValueError("Invalid YouTube URL format. Please provide a direct link to a YouTube video.")
 
-def update_progress(video_id, progress, message):
-    """Update progress information for a video."""
-    # Simple progress update
+def update_progress(video_id, progress, message, data=None):
+    """
+    Update progress information for a video.
+    
+    Args:
+        video_id: The YouTube video ID
+        progress: Percentage of progress (0-100)
+        message: Status message to display
+        data: Optional data object with complete results
+    """
+    # Log the progress update
     logger.info(f"Progress update for {video_id}: {progress}% - {message}")
-    video_progress[video_id] = {"progress": progress, "status_message": message}
+    
+    # Create a complete record
+    progress_record = {
+        "progress": progress, 
+        "status_message": message,
+    }
+    
+    # Mark as completed if 100%
+    if progress >= 100:
+        progress_record["completed"] = True
+        logger.info(f"Marking analysis as COMPLETED for video {video_id}")
+    
+    # Add data if provided
+    if data:
+        progress_record["data"] = data
+    elif video_id in video_progress and "data" in video_progress[video_id]:
+        # Preserve existing data
+        progress_record["data"] = video_progress[video_id]["data"]
+    
+    # Update the progress dictionary
+    video_progress[video_id] = progress_record
 
 @app.get("/")
 async def root():
@@ -181,28 +209,46 @@ async def health_check(request: Request):
 async def get_progress(video_id: str):
     """Get the current progress of video analysis."""
     logger.info(f"Progress request received for video: {video_id}")
-    
-    if video_id in video_progress:
-        progress_info = video_progress[video_id]
-        
-        # Check if the progress has complete data
-        if "data" in progress_info and progress_info["progress"] == 100:
-            # Return both progress info and the complete data
-            return progress_info["data"]
+    return get_progress_for_video(video_id)
+
+@app.get("/progress/{video_id}")
+async def get_progress_alternate(video_id: str):
+    """Alternative endpoint for progress to handle client requests without /api prefix."""
+    logger.info(f"Progress request received (alternate path) for video: {video_id}")
+    return get_progress_for_video(video_id)
+
+def get_progress_for_video(video_id: str):
+    """Helper function to get progress information for a video ID."""
+    try:
+        if video_id in video_progress:
+            progress_info = video_progress[video_id]
+            
+            # Check if the analysis is complete and has data
+            if progress_info.get("completed", False) and "data" in progress_info:
+                logger.info(f"Returning complete data for video {video_id}")
+                return progress_info["data"]
+            else:
+                # Return just progress info
+                return ProgressResponse(
+                    videoId=video_id,
+                    progress=progress_info.get("progress", 0),
+                    status_message=progress_info.get("status_message", "Processing")
+                )
         else:
-            # Return just progress info
+            logger.warning(f"No progress found for video ID: {video_id}")
             return ProgressResponse(
                 videoId=video_id,
-                progress=progress_info["progress"],
-                status_message=progress_info["status_message"]
+                progress=0,
+                status_message="Not started or ID not found"
             )
-    else:
-        logger.warning(f"No progress found for video ID: {video_id}")
-        return ProgressResponse(
-            videoId=video_id,
-            progress=0,
-            status_message="Not started or ID not found"
-        )
+    except Exception as e:
+        logger.error(f"Error fetching progress for {video_id}: {str(e)}")
+        return {
+            "videoId": video_id,
+            "progress": 0,
+            "status_message": "Error fetching progress",
+            "error": str(e)
+        }
 
 @app.post("/api/analyze-video")
 async def analyze_video(request: VideoRequest, background_tasks: BackgroundTasks):
@@ -258,58 +304,80 @@ async def run_analysis_in_background(url, video_id):
     logger.info(f"Starting background analysis for video {video_id}")
     
     try:
-        # Create a unique directory for this video
+        # Create a unique directory for this video in static dir
         video_dir = os.path.join(STATIC_DIR, video_id)
+        if not os.path.exists(video_dir):
+            logger.info(f"Creating static directory: {video_dir}")
+            os.makedirs(video_dir, exist_ok=True)
+        else:
+            logger.info(f"Static directory already exists: {video_dir}")
         
         # Create a videos directory for this video ID
         video_output_dir = os.path.join(VIDEOS_DIR, video_id)
-        os.makedirs(video_output_dir, exist_ok=True)
+        if not os.path.exists(video_output_dir):
+            logger.info(f"Creating videos directory: {video_output_dir}")
+            os.makedirs(video_output_dir, exist_ok=True)
+        else:
+            logger.info(f"Videos directory already exists: {video_output_dir}")
         
         # Download the video using yt-dlp
         update_progress(video_id, 5, "Downloading video from YouTube...")
         try:
             video_info = download_video_and_audio(url, video_output_dir)
-            logger.info(f"Successfully downloaded video: {video_info['video_path']}")
+            logger.info(f"Successfully downloaded video: {video_info.get('video_path', 'Not available')}")
+            logger.info(f"Successfully downloaded audio: {video_info.get('audio_path', 'Not available')}")
             
             # Create symbolic link to the video in static directory
-            video_path = video_info['video_path']
+            video_path = video_info.get('video_path', None)
             static_video_path = os.path.join(video_dir, "video.mp4")
             
             # Also get the audio path from the download function
-            audio_path = video_info['audio_path']
+            audio_path = video_info.get('audio_path', None)
             static_audio_path = os.path.join(video_dir, "original_audio.wav")
             
             # Copy the audio file for the beat detector to use directly
-            if os.path.exists(audio_path):
+            if audio_path and os.path.exists(audio_path):
                 logger.info(f"Copying original audio file to static directory: {static_audio_path}")
                 shutil.copy2(audio_path, static_audio_path)
+                logger.info(f"Successfully copied audio file: {audio_path} -> {static_audio_path}")
+            else:
+                logger.warning(f"Audio file not found or not accessible: {audio_path}")
             
             # Copy the video file to the static directory
-            logger.info(f"Copying video file to static directory: {static_video_path}")
-            
-            # Check if the video file exists before copying
-            if not os.path.exists(video_path):
-                logger.error(f"Source video file does not exist: {video_path}")
-                raise FileNotFoundError(f"Source video file not found: {video_path}")
+            video_url = ""
+            if video_path and os.path.exists(video_path):
+                logger.info(f"Copying video file to static directory: {static_video_path}")
                 
-            # Copy the file with the correct extension
-            shutil.copy2(video_path, static_video_path)
-            logger.info(f"Copied video file: {video_path} -> {static_video_path}")
-            
-            # Update video URL for frontend
-            video_url = f"/static/{video_id}/video.mp4"
+                try:
+                    shutil.copy2(video_path, static_video_path)
+                    logger.info(f"Successfully copied video file: {video_path} -> {static_video_path}")
+                    
+                    # Update video URL for frontend
+                    video_url = f"/static/{video_id}/video.mp4"
+                    logger.info(f"Video available at: {video_url}")
+                except Exception as copy_error:
+                    logger.error(f"Error copying video file: {str(copy_error)}")
+                    video_url = ""
+            else:
+                logger.error(f"Source video file not found: {video_path}")
+                video_url = ""
             
             # Set video duration from metadata
-            duration = video_info['duration']
+            duration = video_info.get('duration', 180)  # Default to 3 minutes if missing
+            logger.info(f"Video duration: {duration} seconds")
             
             # Also copy the thumbnail if available
-            if video_info['thumbnail_path']:
-                thumbnail_ext = os.path.splitext(video_info['thumbnail_path'])[1]
+            if video_info.get('thumbnail_path') and os.path.exists(video_info.get('thumbnail_path')):
+                thumbnail_ext = os.path.splitext(video_info.get('thumbnail_path'))[1]
                 static_thumb_path = os.path.join(video_dir, f"thumbnail{thumbnail_ext}")
-                shutil.copy2(video_info['thumbnail_path'], static_thumb_path)
-            
-            # Update relative video path for frontend
-            logger.info(f"Video available at: {video_url}")
+                logger.info(f"Copying thumbnail: {video_info.get('thumbnail_path')} -> {static_thumb_path}")
+                try:
+                    shutil.copy2(video_info.get('thumbnail_path'), static_thumb_path)
+                    logger.info("Thumbnail copied successfully")
+                except Exception as thumb_error:
+                    logger.error(f"Error copying thumbnail: {str(thumb_error)}")
+            else:
+                logger.warning(f"Thumbnail not found or not accessible: {video_info.get('thumbnail_path')}")
             
             update_progress(video_id, 15, "Video downloaded successfully")
         except Exception as download_e:
@@ -322,12 +390,14 @@ async def run_analysis_in_background(url, video_id):
             update_progress(video_id, 15, "Video download failed, using YouTube player as fallback")
         
         # Initialize the beat detector with a progress callback
+        logger.info("Initializing BeatDetector")
         detector = BeatDetector(tolerance=0.05)
         
         # Create a progress callback
         def progress_callback(percent, message):
             # Scale the percent to start from 15% (after download) to 95%
             scaled_percent = 15 + int(percent * 0.8)
+            logger.info(f"Beat detection progress: {percent}% - {message} (scaled to {scaled_percent}%)")
             update_progress(video_id, scaled_percent, message)
         
         # Analyze the video with progress tracking
@@ -335,45 +405,112 @@ async def run_analysis_in_background(url, video_id):
         
         # Use the downloaded audio file directly if available
         audio_file_path = os.path.join(video_dir, "original_audio.wav")
+        logger.info(f"Checking for audio file at: {audio_file_path}")
+        
         if os.path.exists(audio_file_path):
             logger.info(f"Using pre-downloaded audio file: {audio_file_path}")
-            results = detector.analyze_video(audio_file_path, progress_callback=progress_callback, use_audio_path=True)
+            try:
+                # Verify the audio file is valid
+                import librosa
+                y, sr = librosa.load(audio_file_path, sr=None, duration=5)  # Just load first 5 seconds to check
+                logger.info(f"Audio file verified, sample rate: {sr}Hz, duration sample: {len(y)/sr:.2f}s")
+                
+                results = detector.analyze_video(audio_file_path, progress_callback=progress_callback, use_audio_path=True)
+                logger.info("Beat detection completed successfully using pre-downloaded audio")
+            except Exception as audio_e:
+                logger.error(f"Error using pre-downloaded audio: {str(audio_e)}")
+                logger.error(traceback.format_exc())
+                logger.info("Falling back to URL-based download...")
+                # Fall back to URL-based download
+                results = detector.analyze_video(url, progress_callback=progress_callback)
         else:
             # Fallback to URL-based download inside BeatDetector
-            logger.info(f"No pre-downloaded audio found, using URL for beat detection")
+            logger.warning(f"Pre-downloaded audio file not found at: {audio_file_path}")
+            logger.info(f"Using URL for beat detection: {url}")
             results = detector.analyze_video(url, progress_callback=progress_callback)
             
         logger.info(f"Beat detection completed for video {video_id}")
+        logger.info(f"Detection results: {len(results['beats'])} beats, {len(results['downbeats'] if 'downbeats' in results else [])} downbeats, tempo: {results.get('tempo', 0):.1f} BPM")
+        
+        # Generate steps if they don't exist
+        if 'steps' not in results or not results['steps']:
+            logger.info("No steps found in results, generating default steps")
+            # Generate steps based on beats and downbeats
+            steps = []
+            beats_arr = results['beats']
+            
+            if len(beats_arr) > 4:
+                # Generate dance steps for every 4 beats (approximately one measure)
+                step_descriptions = [
+                    "Basic Step",
+                    "Rock Step",
+                    "Side Step",
+                    "Turn Step",
+                    "Crossover Step",
+                    "Kick Ball Change",
+                    "Box Step",
+                    "Jazz Square",
+                    "Grapevine",
+                    "Heel Toe"
+                ]
+                
+                for i in range(0, len(beats_arr) - 4, 4):
+                    step_desc = step_descriptions[i // 4 % len(step_descriptions)]
+                    start_time = beats_arr[i]
+                    end_time = beats_arr[i + 3] if i + 3 < len(beats_arr) else start_time + 2.0
+                    
+                    steps.append({
+                        "start": float(start_time),
+                        "end": float(end_time),
+                        "description": step_desc
+                    })
+                
+                logger.info(f"Generated {len(steps)} default dance steps")
+                results["steps"] = steps
+            else:
+                logger.warning("Not enough beats to generate meaningful steps")
+                results["steps"] = []
         
         # Copy audio with clicks to static directory
         audio_url = ""
         if 'audio_with_clicks' in results and results['audio_with_clicks'] and os.path.exists(results['audio_with_clicks']):
             static_audio_path = os.path.join(video_dir, "audio_with_clicks.wav")
             logger.info(f"Copying audio with clicks to {static_audio_path}")
-            shutil.copy2(results['audio_with_clicks'], static_audio_path)
-            audio_url = f"/static/{video_id}/audio_with_clicks.wav"
+            try:
+                shutil.copy2(results['audio_with_clicks'], static_audio_path)
+                audio_url = f"/static/{video_id}/audio_with_clicks.wav"
+            except Exception as audio_error:
+                logger.error(f"Error copying audio with clicks: {str(audio_error)}")
         else:
-            logger.warning("Audio with clicks not generated")
+            logger.warning("Audio with clicks not generated or file does not exist")
+            if 'audio_with_clicks' in results:
+                logger.warning(f"Missing file path: {results['audio_with_clicks']}")
             
         # Copy harmonic audio with clicks to static directory
         harmonic_audio_url = ""
         if 'harmonic_with_clicks' in results and results['harmonic_with_clicks'] and os.path.exists(results['harmonic_with_clicks']):
             static_harmonic_path = os.path.join(video_dir, "harmonic_with_clicks.wav")
             logger.info(f"Copying harmonic audio with clicks to {static_harmonic_path}")
-            shutil.copy2(results['harmonic_with_clicks'], static_harmonic_path)
-            harmonic_audio_url = f"/static/{video_id}/harmonic_with_clicks.wav"
+            try:
+                shutil.copy2(results['harmonic_with_clicks'], static_harmonic_path)
+                harmonic_audio_url = f"/static/{video_id}/harmonic_with_clicks.wav"
+            except Exception as harmonic_error:
+                logger.error(f"Error copying harmonic audio with clicks: {str(harmonic_error)}")
         else:
-            logger.warning("Harmonic audio with clicks not generated")
+            logger.warning("Harmonic audio with clicks not generated or file does not exist")
             
         # Copy percussive audio with clicks to static directory
         percussive_audio_url = ""
         if 'percussive_with_clicks' in results and results['percussive_with_clicks'] and os.path.exists(results['percussive_with_clicks']):
             static_percussive_path = os.path.join(video_dir, "percussive_with_clicks.wav")
             logger.info(f"Copying percussive audio with clicks to {static_percussive_path}")
-            shutil.copy2(results['percussive_with_clicks'], static_percussive_path)
-            percussive_audio_url = f"/static/{video_id}/percussive_with_clicks.wav"
+            try:
+                shutil.copy2(results['percussive_with_clicks'], static_percussive_path)
+                percussive_audio_url = f"/static/{video_id}/percussive_with_clicks.wav"
+            except Exception as percussive_error:
+                logger.error(f"Error copying percussive audio with clicks: {str(percussive_error)}")
         else:
-            logger.warning("Percussive audio with clicks not generated")
+            logger.warning("Percussive audio with clicks not generated or file does not exist")
         
         # Also copy the original harmonic and percussive files
         harmonic_url = ""
@@ -415,34 +552,47 @@ async def run_analysis_in_background(url, video_id):
             logger.warning("No waveform image data available")
             waveform_image = ""
         
-        # Update progress to complete with the finished data
-        video_progress[video_id] = {
-            "progress": 100, 
-            "status_message": "Analysis complete",
-            "data": {
-                "videoId": video_id,
-                "duration": results["duration"],
-                "beats": results["beats"],
-                "downbeats": results["downbeats"] if "downbeats" in results else [],
-                "steps": results["steps"] if "steps" in results else [],
-                "tempo": results["tempo"],
-                "audio_with_clicks_url": audio_url,
-                "harmonic_audio_url": harmonic_audio_url,
-                "percussive_audio_url": percussive_audio_url,
-                "harmonic_original_url": harmonic_url,
-                "percussive_original_url": percussive_url,
-                "clicks_only_url": clicks_only_url,
-                "waveform_image": waveform_image,
-                "video_url": video_url
-            }
+        # Update progress with complete data
+        final_results = {
+            "videoId": video_id,
+            "duration": results.get("duration", duration),  # Use previously set duration as fallback
+            "beats": results.get("beats", []),
+            "downbeats": results.get("downbeats", []),
+            "steps": results.get("steps", []),
+            "tempo": results.get("tempo", 120.0),  # Default to 120 BPM if missing
+            "audio_with_clicks_url": audio_url,
+            "harmonic_audio_url": harmonic_audio_url,
+            "percussive_audio_url": percussive_audio_url,
+            "harmonic_original_url": harmonic_url,
+            "percussive_original_url": percussive_url,
+            "clicks_only_url": clicks_only_url,
+            "waveform_image": waveform_image,
+            "video_url": video_url,
+            "completed": True  # Explicitly mark as completed
         }
         
-        logger.info(f"Background analysis complete for video {video_id}. Found {len(results['beats'])} beats and {len(results['downbeats'] if 'downbeats' in results else [])} downbeats.")
+        # Update progress with complete data and ensure it's marked as done
+        update_progress(video_id, 100, "Analysis complete", final_results)
+        
+        # Log success
+        logger.info(f"Background analysis complete for video {video_id}.")
+        logger.info(f"Found {len(results.get('beats', []))} beats and {len(results.get('downbeats', []))} downbeats.")
+        logger.info(f"Generated {len(results.get('steps', []))} dance steps.")
+        
+        # Return the results to signal completion
+        return final_results
         
     except Exception as e:
         logger.error(f"Error in background analysis: {str(e)}")
         logger.error(traceback.format_exc())
-        update_progress(video_id, 100, f"Error: {str(e)}")
+        # Update progress with error and mark as complete
+        error_result = {
+            "videoId": video_id,
+            "error": str(e),
+            "completed": True
+        }
+        update_progress(video_id, 100, f"Error: {str(e)}", error_result)
+        return None
 
 @app.get("/api/audio/{video_id}")
 async def get_audio_with_clicks(video_id: str):

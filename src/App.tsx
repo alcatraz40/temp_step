@@ -705,10 +705,12 @@ function App() {
   const [statusMessage, setStatusMessage] = useState<string>('');
   const [isPollingProgress, setIsPollingProgress] = useState<boolean>(false);
   const pollingIntervalRef = useRef<TimeoutRef | null>(null);
+  const failedPollAttemptsRef = useRef<number>(0);
   
   // Playback state
   const checkTimeInterval = useRef<TimeoutRef | null>(null);
   const timelineRef = useRef<HTMLDivElement>(null);
+  const fadeInRef = useRef<HTMLDivElement>(null);
   const [currentPlaybackTime, setCurrentPlaybackTime] = useState<number>(0);
   const [videoUrl, setVideoUrl] = useState<string>(loadFromLocalStorage('videoUrl', ''));
   const [playbackRate, setPlaybackRate] = useState<number>(loadFromLocalStorage('playbackRate', 1));
@@ -814,7 +816,16 @@ function App() {
   const fetchProgress = async (videoIdToCheck: string) => {
     try {
       console.log(`PROGRESS POLL: Fetching progress for video ID: ${videoIdToCheck}`);
-      const response = await fetch(getApiPath(`/api/progress/${videoIdToCheck}`));
+      
+      // Try the /api/progress endpoint first
+      let response = await fetch(getApiPath(`/api/progress/${videoIdToCheck}`));
+      
+      // If that fails, try the /progress endpoint directly
+      if (!response.ok) {
+        console.log('PROGRESS POLL: API endpoint failed, trying alternate endpoint');
+        response = await fetch(getApiPath(`/progress/${videoIdToCheck}`));
+      }
+      
       console.log(`PROGRESS POLL: Response status: ${response.status}`);
       
       if (response.ok) {
@@ -886,14 +897,15 @@ function App() {
         console.log(`PROGRESS POLL: Progress update: ${progressData.progress}% - ${progressData.status_message}`);
         
         // Update UI with progress
-        setProgress(progressData.progress);
-        setStatusMessage(progressData.status_message);
+        setProgress(progressData.progress || 0);
+        setStatusMessage(progressData.status_message || 'Processing...');
         
         // Update document title with progress
-        document.title = `${progressData.progress}% - Dance Beat Analyzer`;
+        document.title = `${progressData.progress || 0}% - Dance Beat Analyzer`;
         
         // If the progress is 100 or there was an error, stop polling
-        if (progressData.progress >= 100 || progressData.status_message.includes('Error')) {
+        if ((progressData.progress && progressData.progress >= 100) || 
+            (progressData.status_message && progressData.status_message.includes('Error'))) {
           console.log('PROGRESS POLL: Stopping polling - process complete or error occurred');
           if (pollingIntervalRef.current) {
             clearInterval(pollingIntervalRef.current);
@@ -902,9 +914,33 @@ function App() {
         }
       } else {
         console.warn(`PROGRESS POLL: Failed to fetch progress: ${response.status} ${response.statusText}`);
+        
+        // After several failed attempts, stop polling
+        failedPollAttemptsRef.current = (failedPollAttemptsRef.current || 0) + 1;
+        
+        if (failedPollAttemptsRef.current > 5) {
+          console.error('PROGRESS POLL: Too many failed attempts, stopping polling');
+          setStatusMessage('Error connecting to server. Please try again.');
+          if (pollingIntervalRef.current) {
+            clearInterval(pollingIntervalRef.current);
+            setIsPollingProgress(false);
+          }
+        }
       }
     } catch (error) {
       console.error('PROGRESS POLL: Error fetching progress:', error);
+      
+      // After several failed attempts, stop polling
+      failedPollAttemptsRef.current = (failedPollAttemptsRef.current || 0) + 1;
+      
+      if (failedPollAttemptsRef.current > 5) {
+        console.error('PROGRESS POLL: Too many failed attempts, stopping polling');
+        setStatusMessage('Error connecting to server. Please try again.');
+        if (pollingIntervalRef.current) {
+          clearInterval(pollingIntervalRef.current);
+          setIsPollingProgress(false);
+        }
+      }
     }
   };
 
@@ -1067,7 +1103,14 @@ function App() {
    */
   const fetchProgressWithUrl = async (videoIdToCheck: string, backendUrl: string) => {
     try {
-      const response = await fetch(`${backendUrl}/api/progress/${videoIdToCheck}`);
+      // Try the /api/progress endpoint first
+      let response = await fetch(`${backendUrl}/api/progress/${videoIdToCheck}`);
+      
+      // If that fails, try the /progress endpoint
+      if (!response.ok) {
+        console.log('ANALYSIS: API endpoint failed, trying alternate endpoint');
+        response = await fetch(`${backendUrl}/progress/${videoIdToCheck}`);
+      }
       
       // Handle server errors
       if (!response.ok) {
@@ -1127,6 +1170,18 @@ function App() {
       }
     } catch (error) {
       console.error('ANALYSIS: Error fetching progress:', error);
+      // After several failed attempts, stop polling
+      failedPollAttemptsRef.current = (failedPollAttemptsRef.current || 0) + 1;
+      
+      if (failedPollAttemptsRef.current > 3) {
+        console.error('ANALYSIS: Too many failed attempts, stopping polling');
+        setStatusMessage('Error connecting to server. Please try again.');
+        setIsLoading(false);
+        if (pollingIntervalRef.current) {
+          clearInterval(pollingIntervalRef.current);
+          pollingIntervalRef.current = null;
+        }
+      }
     }
   };
 
