@@ -161,6 +161,63 @@ fi
 
 echo -e "${GREEN}All required commands are available.${NC}"
 
+# Kill any processes running on ports 3000 and 7081
+echo -e "${YELLOW}Checking for existing processes on ports 3000 and 7081...${NC}"
+
+# Function to check and kill processes on a specific port
+kill_process_on_port() {
+    local PORT=$1
+    local PID
+
+    # Different methods to find PIDs depending on OS
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        # macOS
+        PID=$(lsof -ti :$PORT)
+    else
+        # Linux and others
+        PID=$(netstat -tulpn 2>/dev/null | grep ":$PORT " | awk '{print $7}' | cut -d'/' -f1)
+        # If netstat didn't work, try with lsof
+        if [ -z "$PID" ] && command_exists lsof; then
+            PID=$(lsof -ti :$PORT)
+        fi
+        # If lsof didn't work, try with fuser
+        if [ -z "$PID" ] && command_exists fuser; then
+            PID=$(fuser $PORT/tcp 2>/dev/null | tr -d ' ')
+        fi
+    fi
+
+    if [ -n "$PID" ]; then
+        echo -e "${YELLOW}Found process with PID $PID running on port $PORT. Killing it...${NC}"
+        if [[ "$OSTYPE" == "darwin"* || "$OSTYPE" == "linux-gnu"* ]]; then
+            kill -9 $PID 2>/dev/null || sudo kill -9 $PID 2>/dev/null
+        else
+            taskkill /F /PID $PID 2>/dev/null
+        fi
+        
+        # Verify process was killed
+        sleep 1
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+            if lsof -ti :$PORT >/dev/null; then
+                echo -e "${RED}Failed to kill process on port $PORT. You may need to kill it manually.${NC}"
+            else
+                echo -e "${GREEN}Successfully killed process on port $PORT.${NC}"
+            fi
+        elif command_exists lsof && lsof -ti :$PORT >/dev/null 2>&1; then
+            echo -e "${RED}Failed to kill process on port $PORT. You may need to kill it manually.${NC}"
+        elif command_exists netstat && netstat -tulpn 2>/dev/null | grep -q ":$PORT "; then
+            echo -e "${RED}Failed to kill process on port $PORT. You may need to kill it manually.${NC}"
+        else
+            echo -e "${GREEN}Successfully killed process on port $PORT.${NC}"
+        fi
+    else
+        echo -e "${GREEN}No process found running on port $PORT.${NC}"
+    fi
+}
+
+# Kill processes on frontend and backend ports
+kill_process_on_port 3000  # Frontend port
+kill_process_on_port 7081  # Backend port
+
 # Check and ensure the backend static directory exists
 echo -e "${YELLOW}Checking backend directories...${NC}"
 mkdir -p "$BACKEND_DIR/static"

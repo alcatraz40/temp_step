@@ -19,7 +19,7 @@ import traceback
 import tempfile
 import shutil
 from simple_youtube import SimpleYouTubeDownloader
-from video_downloader import download_youtube_video, extract_audio_from_video
+from video_downloader import download_video_and_audio, extract_audio_from_video
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, 
@@ -268,16 +268,39 @@ async def run_analysis_in_background(url, video_id):
         # Download the video using yt-dlp
         update_progress(video_id, 5, "Downloading video from YouTube...")
         try:
-            video_info = download_youtube_video(url, video_output_dir)
+            video_info = download_video_and_audio(url, video_output_dir)
             logger.info(f"Successfully downloaded video: {video_info['video_path']}")
             
             # Create symbolic link to the video in static directory
             video_path = video_info['video_path']
             static_video_path = os.path.join(video_dir, "video.mp4")
             
+            # Also get the audio path from the download function
+            audio_path = video_info['audio_path']
+            static_audio_path = os.path.join(video_dir, "original_audio.wav")
+            
+            # Copy the audio file for the beat detector to use directly
+            if os.path.exists(audio_path):
+                logger.info(f"Copying original audio file to static directory: {static_audio_path}")
+                shutil.copy2(audio_path, static_audio_path)
+            
             # Copy the video file to the static directory
             logger.info(f"Copying video file to static directory: {static_video_path}")
+            
+            # Check if the video file exists before copying
+            if not os.path.exists(video_path):
+                logger.error(f"Source video file does not exist: {video_path}")
+                raise FileNotFoundError(f"Source video file not found: {video_path}")
+                
+            # Copy the file with the correct extension
             shutil.copy2(video_path, static_video_path)
+            logger.info(f"Copied video file: {video_path} -> {static_video_path}")
+            
+            # Update video URL for frontend
+            video_url = f"/static/{video_id}/video.mp4"
+            
+            # Set video duration from metadata
+            duration = video_info['duration']
             
             # Also copy the thumbnail if available
             if video_info['thumbnail_path']:
@@ -285,11 +308,7 @@ async def run_analysis_in_background(url, video_id):
                 static_thumb_path = os.path.join(video_dir, f"thumbnail{thumbnail_ext}")
                 shutil.copy2(video_info['thumbnail_path'], static_thumb_path)
             
-            # Set video duration from metadata
-            duration = video_info['duration']
-            
             # Update relative video path for frontend
-            video_url = f"/videos/{video_id}/{os.path.basename(video_path)}"
             logger.info(f"Video available at: {video_url}")
             
             update_progress(video_id, 15, "Video downloaded successfully")
@@ -313,7 +332,17 @@ async def run_analysis_in_background(url, video_id):
         
         # Analyze the video with progress tracking
         logger.info(f"Starting beat detection for video {video_id}")
-        results = detector.analyze_video(url, progress_callback=progress_callback)
+        
+        # Use the downloaded audio file directly if available
+        audio_file_path = os.path.join(video_dir, "original_audio.wav")
+        if os.path.exists(audio_file_path):
+            logger.info(f"Using pre-downloaded audio file: {audio_file_path}")
+            results = detector.analyze_video(audio_file_path, progress_callback=progress_callback, use_audio_path=True)
+        else:
+            # Fallback to URL-based download inside BeatDetector
+            logger.info(f"No pre-downloaded audio found, using URL for beat detection")
+            results = detector.analyze_video(url, progress_callback=progress_callback)
+            
         logger.info(f"Beat detection completed for video {video_id}")
         
         # Copy audio with clicks to static directory

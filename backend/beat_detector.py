@@ -384,9 +384,19 @@ class BeatDetector:
                 "clicks_only": None
             }
             
-    def analyze_video(self, youtube_url, progress_callback=None):
-        """Analyze a YouTube video to detect beats"""
-        logger.info(f"Starting analysis for {youtube_url}")
+    def analyze_video(self, youtube_url_or_audio_path, progress_callback=None, use_audio_path=False):
+        """
+        Analyze a YouTube video or local audio file to detect beats
+        
+        Args:
+            youtube_url_or_audio_path: Either a YouTube URL or local audio file path
+            progress_callback: Optional callback for progress updates
+            use_audio_path: If True, treat the input as a local audio file path
+            
+        Returns:
+            Dictionary with analysis results
+        """
+        logger.info(f"Starting analysis for {'local audio file' if use_audio_path else 'YouTube URL'}")
         start_time = time.time()
         
         try:
@@ -394,10 +404,22 @@ class BeatDetector:
             temp_dir = tempfile.mkdtemp()
             logger.info("Starting analysis")
             
-            # Download audio
-            logger.info("Downloading audio")
-            audio_file = self.download_audio(youtube_url, temp_dir)
-            logger.info("Audio downloaded")
+            if progress_callback:
+                progress_callback(10, "Preparing audio...")
+            
+            # Get audio file - either from local path or by downloading
+            if use_audio_path:
+                audio_file = youtube_url_or_audio_path
+                logger.info(f"Using provided audio file: {audio_file}")
+                if not os.path.exists(audio_file):
+                    raise FileNotFoundError(f"Audio file not found: {audio_file}")
+            else:
+                # Download audio
+                logger.info("Downloading audio")
+                if progress_callback:
+                    progress_callback(20, "Downloading audio...")
+                audio_file = self.download_audio(youtube_url_or_audio_path, temp_dir)
+                logger.info("Audio downloaded")
             
             # Get audio duration
             y, sr = librosa.load(audio_file, sr=None)
@@ -405,24 +427,34 @@ class BeatDetector:
             
             # Separate audio
             logger.info("Separating audio components")
+            if progress_callback:
+                progress_callback(40, "Separating audio components...")
             harmonic_file, percussive_file = self.separate_audio(audio_file)
             logger.info("Audio separated successfully")
             
             # Detect beats - using the ML-based method
             logger.info("Detecting beats using ML model")
+            if progress_callback:
+                progress_callback(60, "Detecting beats...")
             beats, downbeats, tempo = self.detect_beats(harmonic_file, percussive_file, audio_file)
             logger.info(f"Found {len(beats)} regular beats and {len(downbeats)} downbeats")
             
             # Create visualization
             logger.info("Creating visualization")
+            if progress_callback:
+                progress_callback(80, "Creating visualization...")
             waveform_path = os.path.join(temp_dir, "waveform.png")
             waveform_base64 = self.create_waveform_visualization(audio_file, beats, downbeats, waveform_path)
             
             # Create audio with clicks
             logger.info("Generating audio with clicks")
+            if progress_callback:
+                progress_callback(90, "Generating audio with clicks...")
             audio_files = self.create_audio_with_clicks(audio_file, harmonic_file, percussive_file, beats, downbeats, temp_dir)
             
             logger.info("Analysis complete")
+            if progress_callback:
+                progress_callback(100, "Analysis complete")
             
             # Return results
             total_time = time.time() - start_time

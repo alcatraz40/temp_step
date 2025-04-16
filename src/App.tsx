@@ -1,3 +1,9 @@
+/**
+ * Dance Beat Analyzer - Main Application
+ * This application analyzes YouTube videos to detect beats and create dance steps
+ * synchronized with the music.
+ */
+
 import React, { useState, useRef, useEffect } from 'react';
 import YouTube, { YouTubeEvent, YouTubePlayer } from 'react-youtube';
 import styled, { createGlobalStyle } from 'styled-components';
@@ -5,8 +11,50 @@ import TimelineEditor from './components/TimelineEditor';
 import CustomVideoPlayer from './components/CustomVideoPlayer';
 import { API_URL, getApiPath } from './config';
 
+// Type definitions
 type TimeoutRef = ReturnType<typeof setTimeout>;
 
+/**
+ * Step interface - represents a single dance step with timing and description
+ */
+interface Step {
+  start: number;   // Start time in seconds
+  end: number;     // End time in seconds
+  description: string;  // Description of the dance step
+}
+
+/**
+ * ProgressData interface - represents progress updates during analysis
+ */
+interface ProgressData {
+  progress: number;       // Progress percentage (0-100)
+  status_message: string; // Current status message
+}
+
+// Utility functions for localStorage persistence
+const saveToLocalStorage = (key: string, value: any) => {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch (error) {
+    console.error('Error saving to localStorage:', error);
+  }
+};
+
+const loadFromLocalStorage = (key: string, defaultValue: any = null) => {
+  try {
+    const item = localStorage.getItem(key);
+    return item ? JSON.parse(item) : defaultValue;
+  } catch (error) {
+    console.error('Error loading from localStorage:', error);
+    return defaultValue;
+  }
+};
+
+// Get version info from environment variables
+const appVersion = import.meta.env.VITE_APP_VERSION || '0.1.0';
+const isDevelopment = import.meta.env.DEV;
+
+// Global styles
 const GlobalStyle = createGlobalStyle`
   body {
     background: linear-gradient(to bottom, #1a1a1a, #121212);
@@ -15,18 +63,11 @@ const GlobalStyle = createGlobalStyle`
   }
 `;
 
-interface Step {
-  start: number;
-  end: number;
-  description: string;
-}
-
-// Add a new interface for progress data
-interface ProgressData {
-  progress: number;
-  status_message: string;
-}
-
+/**
+ * Styled Components
+ * -----------------
+ * Layout Components
+ */
 const Container = styled.div`
   max-width: 1400px;
   margin: 0 auto;
@@ -53,6 +94,9 @@ const MainContent = styled.div`
   border: 1px solid rgba(255, 255, 255, 0.1);
 `;
 
+/**
+ * Video Player Components
+ */
 const VideoContainer = styled.div`
   margin-bottom: 30px;
   border-radius: 16px;
@@ -80,6 +124,9 @@ const StyledYouTube = styled(YouTube)`
   height: 100% !important;
 `;
 
+/**
+ * Timeline and Steps Components
+ */
 const TimelineContainer = styled.div`
   position: relative;
   margin: 30px 0;
@@ -107,6 +154,7 @@ const Timeline = styled.div`
   }
 `;
 
+// Individual step segment in the timeline
 const StepSegment = styled.div<{ isActive: boolean }>`
   min-width: calc(20% - 4px);
   height: 40px;
@@ -157,6 +205,7 @@ const StepSegment = styled.div<{ isActive: boolean }>`
   }
 `;
 
+// Timeline scroll buttons
 const ScrollButton = styled.button<{ direction: 'left' | 'right' }>`
   position: absolute;
   top: 50%;
@@ -191,6 +240,9 @@ const ScrollButton = styled.button<{ direction: 'left' | 'right' }>`
   }
 `;
 
+/**
+ * Controls Components
+ */
 const Controls = styled.div`
   display: flex;
   gap: 20px;
@@ -232,6 +284,9 @@ const Button = styled.button<{ isActive?: boolean; variant?: 'primary' | 'second
   }
 `;
 
+/**
+ * Loading and Progress Components
+ */
 const LoadingOverlay = styled.div`
   position: fixed;
   top: 0;
@@ -263,6 +318,9 @@ const Spinner = styled.div`
   }
 `;
 
+/**
+ * Progress Indicator Components
+ */
 const ProgressContainer = styled.div`
   width: 80%;
   max-width: 500px;
@@ -296,6 +354,9 @@ const ProgressStatus = styled.div`
   text-align: center;
 `;
 
+/**
+ * Message Components
+ */
 const ErrorMessage = styled.div`
   color: #ff5555;
   background: rgba(255, 85, 85, 0.1);
@@ -333,6 +394,9 @@ const WelcomeScreen = styled.div`
   border: 1px solid rgba(255, 255, 255, 0.1);
 `;
 
+/**
+ * Audio Visualization Components
+ */
 const AudioVisualizationSection = styled.div`
   margin: 20px 0;
   padding: 20px;
@@ -393,6 +457,9 @@ const WaveformImage = styled.img`
   display: block;
 `;
 
+/**
+ * Audio Player Components
+ */
 const AudioPlayer = styled.audio`
   width: 100%;
   height: 40px;
@@ -438,7 +505,10 @@ const FallbackNotice = styled.div`
   font-size: 0.9rem;
 `;
 
-// Update the SpeedControlContainer to be collapsible
+/**
+ * Playback Speed Control Components
+ */
+// Collapsible container for speed controls
 const SpeedControlContainer = styled.div<{ isExpanded: boolean }>`
   display: flex;
   align-items: center;
@@ -576,57 +646,67 @@ const SpeedDisplay = styled.div`
   text-align: center;
 `;
 
-// Add local storage utilities at the top of the file
-const saveToLocalStorage = (key: string, value: any) => {
-  try {
-    localStorage.setItem(key, JSON.stringify(value));
-  } catch (error) {
-    console.error('Error saving to localStorage:', error);
+// Environment indicator
+const EnvironmentBadge = styled.div`
+  position: fixed;
+  bottom: 10px;
+  right: 10px;
+  background: ${props => props.color || 'rgba(0, 0, 0, 0.5)'};
+  color: white;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  z-index: 1000;
+  opacity: 0.7;
+  transition: opacity 0.2s;
+  
+  &:hover {
+    opacity: 1;
   }
-};
+`;
 
-const loadFromLocalStorage = (key: string, defaultValue: any = null) => {
-  try {
-    const item = localStorage.getItem(key);
-    return item ? JSON.parse(item) : defaultValue;
-  } catch (error) {
-    console.error('Error loading from localStorage:', error);
-    return defaultValue;
-  }
-};
-
-// Add version info from package.json
-const appVersion = import.meta.env.VITE_APP_VERSION || '0.1.0';
-const isDevelopment = import.meta.env.DEV;
-
+/**
+ * Main App Component
+ * -----------------
+ * Handles the application state and logic
+ */
 function App() {
-  // Initialize state from localStorage when available
+  // State initialized from localStorage when available
   const [videoId, setVideoId] = useState<string>(loadFromLocalStorage('videoId', ''));
   const [player, setPlayer] = useState<YouTubePlayer | null>(null);
   const [currentStep, setCurrentStep] = useState<number>(loadFromLocalStorage('currentStep', 0));
   const [isLooping, setIsLooping] = useState<boolean>(loadFromLocalStorage('isLooping', true));
   const [steps, setSteps] = useState<Step[]>(loadFromLocalStorage('steps', []));
+  
+  // Loading and error states
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string>('');
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
+  
+  // Audio file URLs
   const [audioWithClicksUrl, setAudioWithClicksUrl] = useState<string>(loadFromLocalStorage('audioWithClicksUrl', ''));
   const [harmonicWithClicksUrl, setHarmonicWithClicksUrl] = useState<string>(loadFromLocalStorage('harmonicWithClicksUrl', ''));
   const [percussiveWithClicksUrl, setPercussiveWithClicksUrl] = useState<string>(loadFromLocalStorage('percussiveWithClicksUrl', ''));
   const [harmonicOriginalUrl, setHarmonicOriginalUrl] = useState<string>(loadFromLocalStorage('harmonicOriginalUrl', ''));
   const [percussiveOriginalUrl, setPercussiveOriginalUrl] = useState<string>(loadFromLocalStorage('percussiveOriginalUrl', ''));
   const [clicksOnlyUrl, setClicksOnlyUrl] = useState<string>(loadFromLocalStorage('clicksOnlyUrl', ''));
+  
+  // Visualization data
   const [waveformImage, setWaveformImage] = useState<string>(loadFromLocalStorage('waveformImage', ''));
   const [isDummyData, setIsDummyData] = useState<boolean>(loadFromLocalStorage('isDummyData', false));
-  // Add state for beats and downbeats
+  
+  // Beat detection data
   const [beats, setBeats] = useState<number[]>(loadFromLocalStorage('beats', []));
   const [downbeats, setDownbeats] = useState<number[]>(loadFromLocalStorage('downbeats', []));
   const [videoDuration, setVideoDuration] = useState<number>(loadFromLocalStorage('videoDuration', 0));
+  
   // Progress tracking
   const [progress, setProgress] = useState<number>(0);
   const [statusMessage, setStatusMessage] = useState<string>('');
   const [isPollingProgress, setIsPollingProgress] = useState<boolean>(false);
   const pollingIntervalRef = useRef<TimeoutRef | null>(null);
   
+  // Playback state
   const checkTimeInterval = useRef<TimeoutRef | null>(null);
   const timelineRef = useRef<HTMLDivElement>(null);
   const [currentPlaybackTime, setCurrentPlaybackTime] = useState<number>(0);
@@ -634,7 +714,9 @@ function App() {
   const [playbackRate, setPlaybackRate] = useState<number>(loadFromLocalStorage('playbackRate', 1));
   const [isSpeedControlExpanded, setIsSpeedControlExpanded] = useState<boolean>(false);
 
-  // Save state to localStorage when it changes
+  /**
+   * Save application state to localStorage whenever relevant state changes
+   */
   useEffect(() => {
     if (videoId) saveToLocalStorage('videoId', videoId);
     if (currentStep !== undefined) saveToLocalStorage('currentStep', currentStep);
@@ -661,7 +743,9 @@ function App() {
     videoUrl, playbackRate
   ]);
 
-  // Effect to automatically load saved state when the page loads
+  /**
+   * Automatically load saved analysis results when the page loads
+   */
   useEffect(() => {
     // If we have a saved videoId but no analysis results yet, try to load them
     if (videoId && !isLoading && steps.length === 0 && beats.length === 0) {
@@ -670,13 +754,17 @@ function App() {
     }
   }, [videoId]);
 
+  /**
+   * Handle video player ready event - sets up the player object
+   * Works with both YouTube and custom HTML5 players
+   */
   const handleVideoReady = (player: YouTubePlayer | HTMLVideoElement) => {
     // Handle both YouTube player and custom video player
     if ('getCurrentTime' in player) {
       // It's YouTube player
       setPlayer(player as YouTubePlayer);
     } else {
-      // It's HTML video element - setup our own player object
+      // It's HTML video element - setup our own player object with YouTube-like API
       const videoElement = player as HTMLVideoElement;
       const customPlayer: YouTubePlayer = {
         getCurrentTime: () => videoElement.currentTime,
@@ -692,6 +780,10 @@ function App() {
     }
   };
 
+  /**
+   * Navigation and playback control handlers
+   */
+  // Handle step click in timeline
   const handleStepClick = (index: number) => {
     if (player) {
       setCurrentStep(index);
@@ -701,19 +793,24 @@ function App() {
     }
   };
 
+  // Go to next step
   const handleNextStep = () => {
     if (currentStep < steps.length - 1) {
       handleStepClick(currentStep + 1);
     }
   };
 
+  // Go to previous step
   const handlePrevStep = () => {
     if (currentStep > 0) {
       handleStepClick(currentStep - 1);
     }
   };
 
-  // Function to fetch progress updates
+  /**
+   * Progress tracking and API communication
+   */
+  // Fetch processing progress from the server
   const fetchProgress = async (videoIdToCheck: string) => {
     try {
       console.log(`PROGRESS POLL: Fetching progress for video ID: ${videoIdToCheck}`);
@@ -751,6 +848,7 @@ function App() {
             setVideoUrl(`${API_URL}${data.video_url}`);
           }
           
+          // Set audio file URLs
           setAudioWithClicksUrl(data.audio_with_clicks_url ? `${API_URL}${data.audio_with_clicks_url}` : '');
           setHarmonicWithClicksUrl(data.harmonic_audio_url ? `${API_URL}${data.harmonic_audio_url}` : '');
           setPercussiveWithClicksUrl(data.percussive_audio_url ? `${API_URL}${data.percussive_audio_url}` : '');
@@ -810,7 +908,9 @@ function App() {
     }
   };
 
-  // Start polling for progress once we have a videoId
+  /**
+   * Effect to manage polling for progress updates
+   */
   useEffect(() => {
     if (isPollingProgress && videoId) {
       console.log(`POLLING EFFECT: Starting polling for video ID: ${videoId}`);
@@ -840,25 +940,33 @@ function App() {
     }
   }, [isPollingProgress, videoId]);
 
+  /**
+   * Effect to handle automatic step looping and advancement
+   */
   useEffect(() => {
     if (player && steps.length > 0) {
       if (checkTimeInterval.current) {
         clearInterval(checkTimeInterval.current);
       }
 
+      // Check current time against step boundaries
       checkTimeInterval.current = setInterval(() => {
         const currentTime = player.getCurrentTime();
         const currentStepData = steps[currentStep];
 
+        // If we've reached the end of the current step
         if (currentTime >= currentStepData.end) {
           if (isLooping) {
+            // Loop back to the start of the current step
             player.seekTo(currentStepData.start, true);
           } else if (currentStep < steps.length - 1) {
+            // Advance to the next step
             handleNextStep();
           }
         }
       }, 100) as unknown as TimeoutRef;
 
+      // Cleanup interval on unmount or when dependencies change
       return () => {
         if (checkTimeInterval.current) {
           clearInterval(checkTimeInterval.current);
@@ -867,6 +975,10 @@ function App() {
     }
   }, [player, currentStep, isLooping, steps]);
 
+  /**
+   * Main video analysis function
+   * Sends the video URL to the backend API for processing
+   */
   const analyzeVideo = async (url: string) => {
     if (isLoading) return;
 
@@ -875,13 +987,14 @@ function App() {
     setProgress(0);
     setStatusMessage('Initializing...');
     
+    // Clear any existing polling interval
     if (pollingIntervalRef.current) {
       clearInterval(pollingIntervalRef.current);
       pollingIntervalRef.current = null;
     }
 
     try {
-      // Try to extract video ID client-side as well
+      // Try to extract video ID client-side
       const extractedVideoId = url.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/i)?.[1];
       
       if (extractedVideoId) {
@@ -890,7 +1003,7 @@ function App() {
         console.warn('ANALYSIS: Failed to extract video ID from URL');
       }
       
-      // Construct the direct backend URL like in test.html
+      // Construct the direct backend URL
       const host = window.location.hostname;
       const protocol = window.location.protocol;
       const directBackendUrl = `${protocol}//${host}:7081`;
@@ -898,6 +1011,7 @@ function App() {
       console.log(`ANALYSIS: Sending request to analyze video: ${url}`);
       console.log(`ANALYSIS: Using direct backend URL: ${directBackendUrl}`);
       
+      // Send the analysis request to the backend
       const response = await fetch(`${directBackendUrl}/api/analyze-video`, {
         method: 'POST',
         headers: {
@@ -906,6 +1020,7 @@ function App() {
         body: JSON.stringify({ url }),
       });
 
+      // Handle errors from the backend
       if (!response.ok) {
         let errorMessage = 'Failed to analyze video';
         try {
@@ -917,17 +1032,18 @@ function App() {
         throw new Error(errorMessage);
       }
 
+      // Process the initial response
       const data = await response.json();
       console.log('ANALYSIS: Initial response from analyze-video:', data);
       
-      // Start polling for progress updates
+      // Get video ID from the response
       const returnedVideoId = data.videoId;
       console.log(`ANALYSIS: Using video ID for polling: ${returnedVideoId}`);
       
       // Set the videoId from the response (in case extraction failed)
       setVideoId(returnedVideoId);
       
-      // Start polling immediately
+      // Start polling for progress updates
       console.log(`ANALYSIS: Starting progress polling for video ID: ${returnedVideoId}`);
       setIsPollingProgress(true);
       
@@ -945,12 +1061,15 @@ function App() {
     }
   };
 
-  // New function to fetch progress with a specific backend URL
+  /**
+   * Fetch progress with a specific backend URL
+   * Used for the initial progress check after starting analysis
+   */
   const fetchProgressWithUrl = async (videoIdToCheck: string, backendUrl: string) => {
     try {
       const response = await fetch(`${backendUrl}/api/progress/${videoIdToCheck}`);
       
-      // If the server returns an error, handle it
+      // Handle server errors
       if (!response.ok) {
         console.error(`ANALYSIS: Error checking progress: ${response.status} ${response.statusText}`);
         return;
@@ -1011,9 +1130,13 @@ function App() {
     }
   };
 
+  /**
+   * Prompt user for a YouTube video URL to analyze
+   */
   const handleVideoInput = async () => {
     const url = prompt('Enter YouTube video URL:\nPlease use a direct video URL (not a playlist)\nExample: https://www.youtube.com/watch?v=dQw4w9WgXcQ');
     if (url) {
+      // Validate it's a YouTube URL
       if (!url.match(/https?:\/\/(www\.)?(youtube\.com|youtu\.be)\/.+/)) {
         setError('Invalid YouTube URL format. Please provide a valid YouTube video URL.');
         return;
@@ -1024,12 +1147,19 @@ function App() {
 
   const totalDuration = steps[steps.length - 1]?.end || 0;
 
+  /**
+   * Format seconds into MM:SS format
+   */
   const formatTime = (seconds: number): string => {
     const mins = Math.floor(seconds / 60);
     const secs = Math.round(seconds % 60);
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
+  /**
+   * Timeline navigation functions
+   */
+  // Scroll the timeline horizontally
   const scrollTimeline = (direction: 'left' | 'right') => {
     if (!timelineRef.current) return;
     
@@ -1037,6 +1167,7 @@ function App() {
     timelineRef.current.scrollLeft += scrollAmount;
   };
 
+  // Scroll to the current step in the timeline
   const scrollToCurrentStep = () => {
     if (timelineRef.current) {
       const stepElements = timelineRef.current.children;
@@ -1049,10 +1180,12 @@ function App() {
     }
   };
 
+  // Automatically scroll timeline when current step changes
   useEffect(() => {
     scrollToCurrentStep();
   }, [currentStep]);
 
+  // YouTube player options
   const ytOptions = {
     width: '100%',
     height: '100%',
@@ -1065,7 +1198,9 @@ function App() {
     },
   };
 
-  // Handle steps generated from TimelineEditor
+  /**
+   * Handle steps generated from TimelineEditor
+   */
   const handleStepsGenerated = (newSteps: Step[]) => {
     setSteps(newSteps);
     setCurrentStep(0);
@@ -1076,7 +1211,9 @@ function App() {
     }
   };
 
-  // Add a function to periodically update the current playback time
+  /**
+   * Effect to update current playback time display
+   */
   useEffect(() => {
     if (player && videoId) {
       const updatePlaybackTime = () => {
@@ -1097,6 +1234,9 @@ function App() {
     }
   }, [player, videoId]);
 
+  /**
+   * Analyze video in separate steps (for manual analysis mode)
+   */
   const handleVideoAnalysis = async () => {
     if (!videoId) return;
     
@@ -1105,7 +1245,7 @@ function App() {
     setStatusMessage('Starting video analysis...');
     
     try {
-      // Construct the direct backend URL like in test.html
+      // Construct the direct backend URL
       const host = window.location.hostname;
       const protocol = window.location.protocol;
       const directBackendUrl = `${protocol}//${host}:7081`;
@@ -1212,30 +1352,18 @@ function App() {
     setCurrentStep(0);
   };
 
-  const EnvironmentBadge = styled.div`
-    position: fixed;
-    bottom: 10px;
-    right: 10px;
-    background: ${props => props.color || 'rgba(0, 0, 0, 0.5)'};
-    color: white;
-    padding: 4px 8px;
-    border-radius: 4px;
-    font-size: 0.7rem;
-    z-index: 1000;
-    opacity: 0.7;
-    transition: opacity 0.2s;
-    
-    &:hover {
-      opacity: 1;
-    }
-  `;
-
+  /**
+   * Main component render
+   */
   return (
     <>
+      {/* Global styles */}
       <GlobalStyle />
+      
       <Container>
         <Title>Dance Beat Analyzer</Title>
         
+        {/* Loading overlay with progress indicator */}
         {isLoading && (
           <LoadingOverlay>
             <div style={{ textAlign: 'center', maxWidth: '600px' }}>
@@ -1259,6 +1387,7 @@ function App() {
           </LoadingOverlay>
         )}
         
+        {/* Error message display */}
         {error && (
           <ErrorMessage>
             <h3>Error</h3>
@@ -1268,6 +1397,7 @@ function App() {
         )}
         
         <MainContent>
+          {/* Welcome screen - shown when no video is loaded */}
           {!videoId && !isLoading && (
             <WelcomeScreen>
               <h2>Welcome to Dance Beat Analyzer</h2>
@@ -1314,8 +1444,10 @@ function App() {
             </WelcomeScreen>
           )}
           
+          {/* Main content area - shown when a video is loaded */}
           {videoId && !isLoading && (
             <>
+              {/* Show fallback notice if using dummy data */}
               {isDummyData && (
                 <FallbackNotice>
                   <strong>Using Demo Data</strong>
@@ -1323,6 +1455,7 @@ function App() {
                 </FallbackNotice>
               )}
               
+              {/* Video player */}
               <VideoContainer>
                 <CustomVideoPlayer 
                   videoId={videoId}
@@ -1338,7 +1471,7 @@ function App() {
                 />
               </VideoContainer>
               
-              {/* Updated collapsible Speed Control Component */}
+              {/* Playback speed controls */}
               <SpeedControlContainer isExpanded={isSpeedControlExpanded}>
                 <SpeedControlToggle onClick={toggleSpeedControl}>
                   <SpeedToggleButton>
@@ -1351,6 +1484,7 @@ function App() {
                 </SpeedControlToggle>
                 
                 <SpeedControlsContent isExpanded={isSpeedControlExpanded}>
+                  {/* Preset speed buttons */}
                   <SpeedButton 
                     active={playbackRate === 0.25} 
                     onClick={() => handlePlaybackRateChange(0.25)}
@@ -1394,6 +1528,7 @@ function App() {
                     2.0x
                   </SpeedButton>
                   
+                  {/* Speed slider for fine control */}
                   <SpeedSliderContainer>
                     <SpeedSlider 
                       type="range" 
@@ -1408,12 +1543,15 @@ function App() {
                 </SpeedControlsContent>
               </SpeedControlContainer>
               
+              {/* Step information and timeline */}
               {steps.length > 0 && (
                 <>
+                  {/* Current step info */}
                   <StepInfo>
                     Currently learning <span>{steps[currentStep].description}</span> from <span>{steps[currentStep].start.toFixed(1)}s</span> to <span>{steps[currentStep].end.toFixed(1)}s</span>
                   </StepInfo>
                   
+                  {/* Timeline with step segments */}
                   <TimelineContainer>
                     <ScrollButton 
                       direction="left" 
@@ -1444,7 +1582,7 @@ function App() {
                 </>
               )}
               
-              {/* Add the TimelineEditor component */}
+              {/* Timeline editor for advanced editing */}
               {beats.length > 0 && videoDuration > 0 && (
                 <TimelineEditor
                   videoId={videoId}
@@ -1456,6 +1594,7 @@ function App() {
                 />
               )}
               
+              {/* Button to start over with a new video */}
               <div style={{ marginTop: '20px', textAlign: 'center' }}>
                 <Button onClick={handleNewVideo}>
                   Analyze Another Video
@@ -1466,7 +1605,7 @@ function App() {
         </MainContent>
       </Container>
       
-      {/* Environment badge to help identify which environment is being used */}
+      {/* Environment indicator badge */}
       <EnvironmentBadge color={isDevelopment ? '#2196F3' : '#4CAF50'}>
         {isDevelopment ? 'DEV' : 'PROD'} | v{appVersion} | {API_URL.includes('localhost') ? 'Local API' : 'Remote API'}
       </EnvironmentBadge>

@@ -46,7 +46,7 @@ class SimpleYouTubeDownloader:
             try:
                 logger.info(f"Download attempt {attempt + 1}/{max_retries + 1}")
                 
-                # Configure yt-dlp options
+                # Configure yt-dlp options with more reliable settings
                 ydl_opts = {
                     'format': 'bestaudio/best',
                     'outtmpl': os.path.join(output_dir, 'temp_audio.%(ext)s'),
@@ -58,11 +58,15 @@ class SimpleYouTubeDownloader:
                     'quiet': False,
                     'no_warnings': False,
                     'noplaylist': True,
+                    'ignoreerrors': True,  # Skip unavailable videos
+                    'no_color': True,  # No colored output
+                    'geo_bypass': True,  # Bypass geographic restriction
+                    'retries': 5,  # Retry on network errors
                 }
                 
                 # Download and convert the video
                 start_time = time.time()
-                logger.info("Starting download with yt-dlp...")
+                logger.info("Starting download with yt-dlp using optimized settings...")
                 
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     info = ydl.extract_info(youtube_url, download=True)
