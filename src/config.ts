@@ -7,16 +7,29 @@
 const getDefaultApiUrl = () => {
   // When running in a browser
   if (typeof window !== 'undefined') {
+    // In development mode, use a relative URL to leverage the Vite proxy
+    const isDevelopment = import.meta.env.DEV;
+    
+    if (isDevelopment) {
+      // This will go through the Vite proxy which is configured in vite.config.ts
+      return '';
+    }
+    
     const hostname = window.location.hostname;
     const protocol = window.location.protocol;
+    const port = window.location.port;
     
-    // If we're not on localhost, use the same hostname but with the backend port
+    // Use the same origin (host+port) for API requests to work through our proxy
     if (hostname !== 'localhost' && hostname !== '127.0.0.1') {
-      return `${protocol}//${hostname}:7081`;
+      // Use the same origin without specifying a different port
+      return `${protocol}//${hostname}${port ? ':' + port : ''}`;
     }
+    
+    // For localhost, use the standard development URL
+    return 'http://localhost:7081';
   }
   
-  // Default fallback for localhost development
+  // Default fallback for server-side rendering or non-browser environments
   return 'http://localhost:7081';
 };
 
@@ -35,11 +48,16 @@ export const getApiPath = (path: string): string => {
   // Make sure path starts with / and remove any double slashes
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
   
-  // If path already includes /api, don't add it again
-  if (normalizedPath.startsWith('/api/')) {
-    // Just use the plain endpoint with API_URL
-    return `${API_URL}${normalizedPath.substring(4)}`;
+  // IMPORTANT: Always use direct path without modifications for progress endpoints
+  // This fixes issues with external connections
+  if (normalizedPath.startsWith('/api/progress/') || normalizedPath.startsWith('/progress/')) {
+    return `${API_URL}${normalizedPath}`;
   }
   
-  return `${API_URL}${normalizedPath}`;
+  // For all other paths, ensure they have /api prefix
+  if (normalizedPath.startsWith('/api/')) {
+    return `${API_URL}${normalizedPath}`;
+  }
+  
+  return `${API_URL}/api${normalizedPath}`;
 }; 

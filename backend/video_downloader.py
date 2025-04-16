@@ -5,8 +5,39 @@ import yt_dlp
 import logging
 import subprocess
 from pathlib import Path
+import logging.handlers
 
-logger = logging.getLogger(__name__)
+# Configure logging - Simplified approach
+LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+os.makedirs(LOG_DIR, exist_ok=True)
+LOG_FILE = os.path.join(LOG_DIR, "video_downloader.log")
+
+# Create a logger for this module
+logger = logging.getLogger('video_downloader')
+
+# Check if the logger already has handlers to avoid duplicates
+if not logger.handlers:
+    # Add a file handler
+    file_handler = logging.handlers.RotatingFileHandler(
+        LOG_FILE,
+        maxBytes=10*1024*1024,  # 10MB
+        backupCount=5
+    )
+    file_handler.setLevel(logging.INFO)
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+    logger.setLevel(logging.INFO)
+
+# Test write to log file
+try:
+    with open(LOG_FILE, 'a') as f:
+        f.write("Video downloader initialized\n")
+    logger.info("Successfully wrote to video_downloader log file")
+except Exception as e:
+    logger.error(f"Error writing to video_downloader log file: {str(e)}")
+
+logger.info("Video downloader logging initialized")
 
 def check_ffmpeg_installation():
     """Check if FFmpeg is installed and accessible"""

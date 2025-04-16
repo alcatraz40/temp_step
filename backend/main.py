@@ -20,11 +20,48 @@ import tempfile
 import shutil
 from simple_youtube import SimpleYouTubeDownloader
 from video_downloader import download_video_and_audio, extract_audio_from_video
+import logging.handlers
 
-# Configure logging
-logging.basicConfig(level=logging.INFO, 
-                   format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+# Configure logging - Simplified approach
+LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+os.makedirs(LOG_DIR, exist_ok=True)
+LOG_FILE = os.path.join(LOG_DIR, "backend.log")
+
+# First, reset the root logger
+for handler in logging.root.handlers[:]:
+    logging.root.removeHandler(handler)
+
+# Create the formatter
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
+# Set up the root logger with a console handler
+console = logging.StreamHandler()
+console.setLevel(logging.INFO)
+console.setFormatter(formatter)
+logging.root.addHandler(console)
+logging.root.setLevel(logging.INFO)
+
+# Create the file handler that will write to the log file
+file_handler = logging.handlers.RotatingFileHandler(
+    LOG_FILE, 
+    maxBytes=10*1024*1024,  # 10MB
+    backupCount=5
+)
+file_handler.setLevel(logging.INFO)
+file_handler.setFormatter(formatter)
+logging.root.addHandler(file_handler)
+
+# Get a logger for this module
 logger = logging.getLogger('backend')
+logger.info(f"Backend logging initialized. Log file: {LOG_FILE}")
+
+# Make sure log files are writable
+try:
+    with open(LOG_FILE, 'a') as f:
+        f.write("Test write to log file\n")
+    logger.info("Successfully wrote to log file")
+except Exception as e:
+    logger.error(f"Error writing to log file: {str(e)}")
 
 app = FastAPI()
 
@@ -209,13 +246,33 @@ async def health_check(request: Request):
 async def get_progress(video_id: str):
     """Get the current progress of video analysis."""
     logger.info(f"Progress request received for video: {video_id}")
-    return get_progress_for_video(video_id)
+    response = get_progress_for_video(video_id)
+    # Add no-cache headers to prevent caching
+    headers = {
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache",
+        "Expires": "0",
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    }
+    return JSONResponse(content=response.dict() if hasattr(response, 'dict') else response, headers=headers)
 
 @app.get("/progress/{video_id}")
 async def get_progress_alternate(video_id: str):
     """Alternative endpoint for progress to handle client requests without /api prefix."""
     logger.info(f"Progress request received (alternate path) for video: {video_id}")
-    return get_progress_for_video(video_id)
+    response = get_progress_for_video(video_id)
+    # Add no-cache headers to prevent caching
+    headers = {
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache",
+        "Expires": "0",
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    }
+    return JSONResponse(content=response.dict() if hasattr(response, 'dict') else response, headers=headers)
 
 def get_progress_for_video(video_id: str):
     """Helper function to get progress information for a video ID."""
@@ -321,11 +378,15 @@ async def run_analysis_in_background(url, video_id):
             logger.info(f"Videos directory already exists: {video_output_dir}")
         
         # Download the video using yt-dlp
+        logger.info(f"Starting video download for {video_id} from URL: {url}")
         update_progress(video_id, 5, "Downloading video from YouTube...")
         try:
             video_info = download_video_and_audio(url, video_output_dir)
             logger.info(f"Successfully downloaded video: {video_info.get('video_path', 'Not available')}")
             logger.info(f"Successfully downloaded audio: {video_info.get('audio_path', 'Not available')}")
+            
+            # Update progress after download
+            update_progress(video_id, 12, "Video and audio downloaded, preparing files...")
             
             # Create symbolic link to the video in static directory
             video_path = video_info.get('video_path', None)
@@ -342,6 +403,9 @@ async def run_analysis_in_background(url, video_id):
                 logger.info(f"Successfully copied audio file: {audio_path} -> {static_audio_path}")
             else:
                 logger.warning(f"Audio file not found or not accessible: {audio_path}")
+            
+            # Update progress after copying audio
+            update_progress(video_id, 13, "Audio prepared for analysis...")
             
             # Copy the video file to the static directory
             video_url = ""
@@ -379,7 +443,7 @@ async def run_analysis_in_background(url, video_id):
             else:
                 logger.warning(f"Thumbnail not found or not accessible: {video_info.get('thumbnail_path')}")
             
-            update_progress(video_id, 15, "Video downloaded successfully")
+            update_progress(video_id, 15, "Media files prepared successfully")
         except Exception as download_e:
             logger.error(f"Error downloading video: {str(download_e)}")
             logger.error(traceback.format_exc())
@@ -390,47 +454,61 @@ async def run_analysis_in_background(url, video_id):
             update_progress(video_id, 15, "Video download failed, using YouTube player as fallback")
         
         # Initialize the beat detector with a progress callback
-        logger.info("Initializing BeatDetector")
+        logger.info(f"Initializing BeatDetector for video {video_id}")
+        update_progress(video_id, 16, "Initializing beat detection engine...")
         detector = BeatDetector(tolerance=0.05)
+        logger.info(f"BeatDetector initialized successfully for {video_id}")
         
         # Create a progress callback
         def progress_callback(percent, message):
             # Scale the percent to start from 15% (after download) to 95%
-            scaled_percent = 15 + int(percent * 0.8)
-            logger.info(f"Beat detection progress: {percent}% - {message} (scaled to {scaled_percent}%)")
+            scaled_percent = 16 + int(percent * 0.79)
+            logger.info(f"Beat detection progress for {video_id}: {percent}% - {message} (scaled to {scaled_percent}%)")
             update_progress(video_id, scaled_percent, message)
         
         # Analyze the video with progress tracking
         logger.info(f"Starting beat detection for video {video_id}")
+        update_progress(video_id, 17, "Starting beat detection...")
         
         # Use the downloaded audio file directly if available
         audio_file_path = os.path.join(video_dir, "original_audio.wav")
         logger.info(f"Checking for audio file at: {audio_file_path}")
         
         if os.path.exists(audio_file_path):
-            logger.info(f"Using pre-downloaded audio file: {audio_file_path}")
+            logger.info(f"Using pre-downloaded audio file for {video_id}: {audio_file_path}")
+            update_progress(video_id, 18, "Using downloaded audio file...")
             try:
                 # Verify the audio file is valid
                 import librosa
+                logger.info(f"Loading audio file for verification for {video_id}...")
+                update_progress(video_id, 19, "Verifying audio file...")
                 y, sr = librosa.load(audio_file_path, sr=None, duration=5)  # Just load first 5 seconds to check
-                logger.info(f"Audio file verified, sample rate: {sr}Hz, duration sample: {len(y)/sr:.2f}s")
+                logger.info(f"Audio file verified for {video_id}, sample rate: {sr}Hz, duration sample: {len(y)/sr:.2f}s")
+                update_progress(video_id, 20, "Audio verified, starting analysis...")
                 
+                logger.info(f"Calling analyze_video for {video_id} with pre-downloaded audio file")
                 results = detector.analyze_video(audio_file_path, progress_callback=progress_callback, use_audio_path=True)
-                logger.info("Beat detection completed successfully using pre-downloaded audio")
+                logger.info(f"Beat detection completed successfully for {video_id} using pre-downloaded audio")
             except Exception as audio_e:
-                logger.error(f"Error using pre-downloaded audio: {str(audio_e)}")
+                logger.error(f"Error using pre-downloaded audio for {video_id}: {str(audio_e)}")
                 logger.error(traceback.format_exc())
-                logger.info("Falling back to URL-based download...")
+                logger.info(f"Falling back to URL-based download for {video_id}...")
+                update_progress(video_id, 20, "Pre-downloaded audio failed, fallback in progress...")
                 # Fall back to URL-based download
+                logger.info(f"Calling analyze_video for {video_id} with URL fallback: {url}")
                 results = detector.analyze_video(url, progress_callback=progress_callback)
+                logger.info(f"URL-based fallback analysis completed for {video_id}")
         else:
             # Fallback to URL-based download inside BeatDetector
-            logger.warning(f"Pre-downloaded audio file not found at: {audio_file_path}")
-            logger.info(f"Using URL for beat detection: {url}")
+            logger.warning(f"Pre-downloaded audio file not found for {video_id} at: {audio_file_path}")
+            logger.info(f"Using URL for beat detection for {video_id}: {url}")
+            update_progress(video_id, 18, "Downloading audio for beat detection...")
+            logger.info(f"Calling analyze_video for {video_id} with URL: {url}")
             results = detector.analyze_video(url, progress_callback=progress_callback)
+            logger.info(f"URL-based analysis completed for {video_id}")
             
         logger.info(f"Beat detection completed for video {video_id}")
-        logger.info(f"Detection results: {len(results['beats'])} beats, {len(results['downbeats'] if 'downbeats' in results else [])} downbeats, tempo: {results.get('tempo', 0):.1f} BPM")
+        logger.info(f"Detection results for {video_id}: {len(results['beats'])} beats, {len(results['downbeats'] if 'downbeats' in results else [])} downbeats, tempo: {results.get('tempo', 0):.1f} BPM")
         
         # Generate steps if they don't exist
         if 'steps' not in results or not results['steps']:
@@ -772,6 +850,73 @@ async def startup_event():
     logger.info(f"Videos directory: {VIDEOS_DIR}")
     os.makedirs(STATIC_DIR, exist_ok=True)
     os.makedirs(VIDEOS_DIR, exist_ok=True)
+
+@app.get("/api/external-check")
+async def external_check(request: Request):
+    """
+    Special endpoint to test external access and CORS.
+    Returns the client IP and additional diagnostic info.
+    """
+    logger.info(f"External access check from: {request.client.host}")
+    
+    # Get headers for debugging
+    origin = request.headers.get("origin", "Unknown")
+    user_agent = request.headers.get("user-agent", "Unknown")
+    
+    # Log all request headers for debugging
+    logger.info(f"Request headers: {dict(request.headers)}")
+    
+    # Prepare response with diagnostic information
+    response_data = {
+        "status": "ok",
+        "message": "External access check successful",
+        "timestamp": asyncio.get_event_loop().time(),
+        "client_info": {
+            "ip": request.client.host,
+            "port": request.client.port,
+            "origin": origin,
+            "user_agent": user_agent,
+        }
+    }
+    
+    # Add explicit CORS headers for maximum compatibility
+    headers = {
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache",
+        "Expires": "0",
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    }
+    
+    return JSONResponse(content=response_data, headers=headers)
+
+@app.get("/test-connection")
+async def serve_connection_test():
+    """
+    Serve the connection test page for diagnosing external IP connectivity issues.
+    This is a special development-only route for troubleshooting.
+    """
+    logger.info("Serving connection test page")
+    # Search for the file in several possible locations
+    possible_paths = [
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "connection_test.html"),
+        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "public", "connection_test.html"),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "public", "connection_test.html"),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "connection_test.html")
+    ]
+    
+    for path in possible_paths:
+        if os.path.exists(path):
+            logger.info(f"Found connection test page at: {path}")
+            return FileResponse(path)
+    
+    # If file not found, return error response
+    logger.error("Connection test page not found in any expected location")
+    return JSONResponse(
+        content={"error": "Connection test page not found"},
+        status_code=404
+    )
 
 if __name__ == "__main__":
     import uvicorn

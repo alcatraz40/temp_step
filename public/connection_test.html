@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API Connection Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+            background-color: #f5f5f5;
+        }
+        h1, h2 {
+            color: #333;
+        }
+        button {
+            padding: 8px 15px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        pre {
+            background-color: #f8f8f8;
+            padding: 10px;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+            overflow-x: auto;
+            white-space: pre-wrap;
+        }
+        .success { color: green; }
+        .error { color: red; }
+        .panel {
+            background-color: white;
+            padding: 15px;
+            margin-bottom: 15px;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+    </style>
+</head>
+<body>
+    <div class="panel">
+        <h1>API Connection Test</h1>
+        <div id="connection-info"></div>
+    </div>
+
+    <div class="panel">
+        <h2>Simple API Tests</h2>
+        <button onclick="testRootEndpoint()">Test Root Endpoint</button>
+        <button onclick="testHealthEndpoint()">Test Health Endpoint</button>
+        <button onclick="testProgressEndpoint()">Test Progress Endpoint</button>
+    </div>
+
+    <div class="panel">
+        <h2>YouTube Video Analysis Tests</h2>
+        <input type="text" id="video-url" value="https://www.youtube.com/watch?v=dQw4w9WgXcQ" style="width: 350px; padding: 5px;">
+        <button onclick="testAnalyzeVideo()">Test Analyze Video</button>
+    </div>
+
+    <div class="panel">
+        <h2>Multiple Progress Polling Test</h2>
+        <input type="text" id="video-id" placeholder="Enter video ID" style="width: 200px; padding: 5px;">
+        <button onclick="testMultiplePolling()">Test Multiple Polling</button>
+    </div>
+
+    <h2>Results:</h2>
+    <pre id="results">Test results will appear here...</pre>
+
+    <script>
+        // Get connection info
+        window.onload = function() {
+            const host = window.location.hostname;
+            const port = window.location.port || (window.location.protocol === 'https:' ? '443' : '80');
+            const protocol = window.location.protocol;
+            
+            const backendHost = host;
+            const backendPort = "7081";
+            const backendUrl = `${protocol}//${backendHost}:${backendPort}`;
+            
+            document.getElementById('connection-info').innerHTML = `
+                <p><strong>Frontend URL:</strong> ${protocol}//${host}:${port}</p>
+                <p><strong>Backend URL:</strong> ${backendUrl}</p>
+                <p><strong>User Agent:</strong> ${navigator.userAgent}</p>
+            `;
+        };
+
+        // Helper function to log results
+        function log(message, isError = false) {
+            const resultsElement = document.getElementById('results');
+            const timestamp = new Date().toISOString().slice(11, 23);
+            
+            resultsElement.innerHTML += `<span class="${isError ? 'error' : ''}">[${timestamp}] ${message}</span>\n`;
+            console.log(`[${timestamp}] ${message}`);
+            
+            // Auto-scroll to bottom
+            resultsElement.scrollTop = resultsElement.scrollHeight;
+        }
+
+        // Helper function to format objects
+        function formatObject(obj) {
+            return JSON.stringify(obj, null, 2);
+        }
+
+        // Test root endpoint
+        async function testRootEndpoint() {
+            log("Testing root endpoint...");
+            
+            try {
+                const host = window.location.hostname;
+                const protocol = window.location.protocol;
+                const url = `${protocol}//${host}:7081/`;
+                
+                const startTime = Date.now();
+                const response = await fetch(url);
+                const responseTime = Date.now() - startTime;
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    log(`✅ Root endpoint test successful (${responseTime}ms)`);
+                    log(`Response: ${formatObject(data)}`);
+                } else {
+                    log(`❌ Root endpoint test failed: ${response.status} ${response.statusText} (${responseTime}ms)`, true);
+                }
+            } catch (error) {
+                log(`❌ Root endpoint test error: ${error.message}`, true);
+            }
+        }
+
+        // Test health endpoint
+        async function testHealthEndpoint() {
+            log("Testing health endpoint...");
+            
+            try {
+                const host = window.location.hostname;
+                const protocol = window.location.protocol;
+                const url = `${protocol}//${host}:7081/api/health`;
+                
+                const startTime = Date.now();
+                const response = await fetch(url);
+                const responseTime = Date.now() - startTime;
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    log(`✅ Health endpoint test successful (${responseTime}ms)`);
+                    log(`Response headers: ${formatObject(Object.fromEntries(response.headers))}`);
+                    log(`Client IP detected: ${data.client_info?.ip}`);
+                } else {
+                    log(`❌ Health endpoint test failed: ${response.status} ${response.statusText} (${responseTime}ms)`, true);
+                }
+            } catch (error) {
+                log(`❌ Health endpoint test error: ${error.message}`, true);
+            }
+        }
+
+        // Test progress endpoint
+        async function testProgressEndpoint() {
+            log("Testing progress endpoint...");
+            
+            try {
+                const host = window.location.hostname;
+                const protocol = window.location.protocol;
+                const testId = "test12345";
+                
+                // Test /api/progress endpoint
+                log(`Testing /api/progress/${testId}...`);
+                const url1 = `${protocol}//${host}:7081/api/progress/${testId}`;
+                
+                const startTime1 = Date.now();
+                const response1 = await fetch(url1);
+                const responseTime1 = Date.now() - startTime1;
+                
+                if (response1.ok) {
+                    const data1 = await response1.json();
+                    log(`✅ API progress endpoint test successful (${responseTime1}ms)`);
+                    log(`Response: ${formatObject(data1)}`);
+                } else {
+                    log(`❌ API progress endpoint test failed: ${response1.status} ${response1.statusText} (${responseTime1}ms)`, true);
+                }
+                
+                // Test /progress endpoint
+                log(`Testing /progress/${testId}...`);
+                const url2 = `${protocol}//${host}:7081/progress/${testId}`;
+                
+                const startTime2 = Date.now();
+                const response2 = await fetch(url2);
+                const responseTime2 = Date.now() - startTime2;
+                
+                if (response2.ok) {
+                    const data2 = await response2.json();
+                    log(`✅ Alternate progress endpoint test successful (${responseTime2}ms)`);
+                    log(`Response: ${formatObject(data2)}`);
+                } else {
+                    log(`❌ Alternate progress endpoint test failed: ${response2.status} ${response2.statusText} (${responseTime2}ms)`, true);
+                }
+            } catch (error) {
+                log(`❌ Progress endpoint test error: ${error.message}`, true);
+            }
+        }
+
+        // Test analyze video endpoint
+        async function testAnalyzeVideo() {
+            const videoUrl = document.getElementById('video-url').value;
+            
+            if (!videoUrl || !videoUrl.match(/https?:\/\/(www\.)?(youtube\.com|youtu\.be)\/.+/)) {
+                log("❌ Please enter a valid YouTube URL", true);
+                return;
+            }
+            
+            log(`Testing analyze-video endpoint with URL: ${videoUrl}...`);
+            
+            try {
+                const host = window.location.hostname;
+                const protocol = window.location.protocol;
+                const url = `${protocol}//${host}:7081/api/analyze-video`;
+                
+                const startTime = Date.now();
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ url: videoUrl }),
+                });
+                const responseTime = Date.now() - startTime;
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    log(`✅ Analyze video test successful (${responseTime}ms)`);
+                    log(`Response: ${formatObject(data)}`);
+                    
+                    if (data.videoId) {
+                        log(`Video ID: ${data.videoId}`);
+                        document.getElementById('video-id').value = data.videoId;
+                    }
+                } else {
+                    log(`❌ Analyze video test failed: ${response.status} ${response.statusText} (${responseTime}ms)`, true);
+                    log(`Error: ${formatObject(data)}`);
+                }
+            } catch (error) {
+                log(`❌ Analyze video test error: ${error.message}`, true);
+            }
+        }
+
+        // Test multiple polling requests
+        async function testMultiplePolling() {
+            const videoId = document.getElementById('video-id').value;
+            
+            if (!videoId) {
+                log("❌ Please enter a video ID", true);
+                return;
+            }
+            
+            log(`Testing multiple polling requests for video ID: ${videoId}...`);
+            
+            try {
+                const host = window.location.hostname;
+                const protocol = window.location.protocol;
+                
+                // Test 5 sequential polling requests
+                for (let i = 0; i < 5; i++) {
+                    const url = `${protocol}//${host}:7081/api/progress/${videoId}`;
+                    
+                    log(`Request ${i+1}/5...`);
+                    const startTime = Date.now();
+                    const response = await fetch(url);
+                    const responseTime = Date.now() - startTime;
+                    
+                    if (response.ok) {
+                        const data = await response.json();
+                        log(`✅ Polling request ${i+1} successful (${responseTime}ms)`);
+                        log(`Progress: ${data.progress || 0}%, Message: ${data.status_message || 'N/A'}`);
+                    } else {
+                        log(`❌ Polling request ${i+1} failed: ${response.status} ${response.statusText} (${responseTime}ms)`, true);
+                    }
+                    
+                    // Wait 1 second between requests
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                }
+                
+                log("Multiple polling test completed");
+            } catch (error) {
+                log(`❌ Multiple polling test error: ${error.message}`, true);
+            }
+        }
+    </script>
+</body>
+</html> 

@@ -716,6 +716,73 @@ function App() {
   const [playbackRate, setPlaybackRate] = useState<number>(loadFromLocalStorage('playbackRate', 1));
   const [isSpeedControlExpanded, setIsSpeedControlExpanded] = useState<boolean>(false);
 
+  // Reset connection status when polling starts
+  useEffect(() => {
+    if (isPollingProgress && videoId) {
+      // Reset error message when polling starts
+      setError("");
+      // Reset connection failure counter
+      failedPollAttemptsRef.current = 0;
+      // Set status to loading
+      setStatusMessage("Connecting to server...");
+    }
+  }, [isPollingProgress, videoId]);
+
+  // Add a special connection status indicator
+  const [connectionStatus, setConnectionStatus] = useState<'connected' | 'connecting' | 'error'>('connected');
+  
+  // Update connection status based on polling success/failure
+  useEffect(() => {
+    // If we have an error showing, set connection status to error
+    if (statusMessage && statusMessage.includes("Error connecting")) {
+      setConnectionStatus('error');
+    } else if (isLoading) {
+      setConnectionStatus('connecting');
+    } else {
+      setConnectionStatus('connected');
+    }
+  }, [statusMessage, isLoading]);
+
+  /**
+   * Effect to reset the connection if it's been in error state for too long
+   */
+  useEffect(() => {
+    let reconnectTimer: any = null;
+    
+    if (connectionStatus === 'error' && videoId) {
+      // Try to reconnect after 5 seconds
+      reconnectTimer = setTimeout(() => {
+        console.log("RECONNECT: Attempting to reconnect to server...");
+        setStatusMessage("Reconnecting to server...");
+        
+        // Use a fresh API URL based on current window location
+        const currHost = window.location.hostname;
+        const currProtocol = window.location.protocol;
+        const currApiUrl = `${currProtocol}//${currHost}:7081`;
+        
+        // Reset failure counter
+        failedPollAttemptsRef.current = 0;
+        
+        // Try to fetch progress with the fresh URL
+        fetchProgressWithUrl(videoId, currApiUrl);
+        
+        // Restart polling if needed
+        if (!pollingIntervalRef.current) {
+          setIsPollingProgress(true);
+          pollingIntervalRef.current = setInterval(() => {
+            fetchProgressWithUrl(videoId, currApiUrl);
+          }, 2000);
+        }
+      }, 5000);
+    }
+    
+    return () => {
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+      }
+    };
+  }, [connectionStatus, videoId]);
+
   /**
    * Save application state to localStorage whenever relevant state changes
    */
@@ -817,16 +884,18 @@ function App() {
     try {
       console.log(`PROGRESS POLL: Fetching progress for video ID: ${videoIdToCheck}`);
       
-      // Try the /api/progress endpoint first
-      let response = await fetch(getApiPath(`/api/progress/${videoIdToCheck}`));
+      // First try the /api/progress endpoint with direct API_URL
+      let response = await fetch(`${API_URL}/api/progress/${videoIdToCheck}`);
+      let tried_alt = false;
       
-      // If that fails, try the /progress endpoint directly
+      // If that fails, try the alternate /progress endpoint
       if (!response.ok) {
         console.log('PROGRESS POLL: API endpoint failed, trying alternate endpoint');
-        response = await fetch(getApiPath(`/progress/${videoIdToCheck}`));
+        tried_alt = true;
+        response = await fetch(`${API_URL}/progress/${videoIdToCheck}`);
       }
       
-      console.log(`PROGRESS POLL: Response status: ${response.status}`);
+      console.log(`PROGRESS POLL: Response status: ${response.status} (${tried_alt ? 'alternate' : 'primary'} endpoint)`);
       
       if (response.ok) {
         const data = await response.json();
@@ -854,9 +923,15 @@ function App() {
             setVideoDuration(data.duration);
           }
           
-          // Set video URL if available
+          // Set video URL if available - ensure we log for debugging
           if (data.video_url) {
+            console.log(`PROGRESS POLL: Setting video URL: ${API_URL}${data.video_url}`);
             setVideoUrl(`${API_URL}${data.video_url}`);
+            saveToLocalStorage('videoUrl', `${API_URL}${data.video_url}`);
+          } else {
+            console.log('PROGRESS POLL: No video_url in data, using YouTube fallback player');
+            setVideoUrl('');
+            saveToLocalStorage('videoUrl', '');
           }
           
           // Set audio file URLs
@@ -945,6 +1020,122 @@ function App() {
   };
 
   /**
+   * Fetch progress with a specific API URL
+   * Used for reconnection attempts
+   */
+  const fetchProgressWithUrl = async (videoIdToCheck: string, apiUrl: string) => {
+    try {
+      console.log(`PROGRESS POLL: Fetching progress for video ID: ${videoIdToCheck} with custom URL: ${apiUrl}`);
+      
+      // First try the /api/progress endpoint with the provided API URL
+      let response = await fetch(`${apiUrl}/api/progress/${videoIdToCheck}`);
+      let tried_alt = false;
+      
+      // If that fails, try the alternate /progress endpoint
+      if (!response.ok) {
+        console.log('PROGRESS POLL: API endpoint failed, trying alternate endpoint');
+        tried_alt = true;
+        response = await fetch(`${apiUrl}/progress/${videoIdToCheck}`);
+      }
+      
+      console.log(`PROGRESS POLL: Response status: ${response.status} (${tried_alt ? 'alternate' : 'primary'} endpoint)`);
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log('PROGRESS POLL: Progress response data:', data);
+        
+        // Process the response data similar to fetchProgress
+        // This handles both progress updates and complete results
+        if (data.videoId && !('progress' in data)) {
+          console.log('PROGRESS POLL: Analysis complete, received full data');
+          
+          // Process the complete data
+          if (data.steps && Array.isArray(data.steps)) {
+            setSteps(data.steps);
+          }
+          
+          if (data.beats && Array.isArray(data.beats)) {
+            setBeats(data.beats);
+          }
+          
+          if (data.downbeats && Array.isArray(data.downbeats)) {
+            setDownbeats(data.downbeats);
+          }
+          
+          if (data.duration) {
+            setVideoDuration(data.duration);
+          }
+          
+          // Set video URL if available
+          if (data.video_url) {
+            console.log(`PROGRESS POLL: Setting video URL: ${apiUrl}${data.video_url}`);
+            setVideoUrl(`${apiUrl}${data.video_url}`);
+            saveToLocalStorage('videoUrl', `${apiUrl}${data.video_url}`);
+          } else {
+            console.log('PROGRESS POLL: No video_url in data, using YouTube fallback player');
+            setVideoUrl('');
+            saveToLocalStorage('videoUrl', '');
+          }
+          
+          // Set audio file URLs with custom API URL
+          setAudioWithClicksUrl(data.audio_with_clicks_url ? `${apiUrl}${data.audio_with_clicks_url}` : '');
+          setHarmonicWithClicksUrl(data.harmonic_audio_url ? `${apiUrl}${data.harmonic_audio_url}` : '');
+          setPercussiveWithClicksUrl(data.percussive_audio_url ? `${apiUrl}${data.percussive_audio_url}` : '');
+          setHarmonicOriginalUrl(data.harmonic_original_url ? `${apiUrl}${data.harmonic_original_url}` : '');
+          setPercussiveOriginalUrl(data.percussive_original_url ? `${apiUrl}${data.percussive_original_url}` : '');
+          setClicksOnlyUrl(data.clicks_only_url ? `${apiUrl}${data.clicks_only_url}` : '');
+          
+          // Handle waveform image
+          if (data.waveform_image) {
+            if (data.waveform_image.startsWith('data:image')) {
+              setWaveformImage(data.waveform_image);
+            } else {
+              setWaveformImage(`data:image/png;base64,${data.waveform_image}`);
+            }
+          }
+          
+          setCurrentStep(0);
+          setIsDummyData(!!data.is_dummy_data);
+          
+          // Set progress to 100% and stop polling
+          setProgress(100);
+          setStatusMessage('Analysis complete');
+          setConnectionStatus('connected');
+          
+          if (pollingIntervalRef.current) {
+            clearInterval(pollingIntervalRef.current);
+            setIsPollingProgress(false);
+          }
+          
+          setIsLoading(false);
+          return;
+        }
+        
+        // Handle progress update
+        const progressData = data as ProgressData;
+        setProgress(progressData.progress || 0);
+        setStatusMessage(progressData.status_message || 'Processing...');
+        setConnectionStatus('connected');
+        
+        // If the progress is 100 or there was an error, stop polling
+        if ((progressData.progress && progressData.progress >= 100) || 
+            (progressData.status_message && progressData.status_message.includes('Error'))) {
+          if (pollingIntervalRef.current) {
+            clearInterval(pollingIntervalRef.current);
+            setIsPollingProgress(false);
+          }
+        }
+      } else {
+        console.warn(`PROGRESS POLL: Failed to fetch progress: ${response.status} ${response.statusText}`);
+        failedPollAttemptsRef.current = (failedPollAttemptsRef.current || 0) + 1;
+      }
+    } catch (error) {
+      console.error('PROGRESS POLL: Error fetching progress with custom URL:', error);
+      failedPollAttemptsRef.current = (failedPollAttemptsRef.current || 0) + 1;
+    }
+  };
+
+  /**
    * Effect to manage polling for progress updates
    */
   useEffect(() => {
@@ -1011,6 +1202,33 @@ function App() {
     }
   }, [player, currentStep, isLooping, steps]);
 
+  // Add a more robust direct api access function
+  const directApiCall = async (endpoint: string, options: RequestInit = {}) => {
+    try {
+      // Always use the current window origin (including the current port)
+      const apiUrl = window.location.origin;
+      
+      // Add default headers if not provided
+      if (!options.headers) {
+        options.headers = {
+          'Content-Type': 'application/json',
+        };
+      }
+      
+      console.log(`API CALL: ${apiUrl}${endpoint}`);
+      const response = await fetch(`${apiUrl}${endpoint}`, options);
+      
+      if (!response.ok) {
+        throw new Error(`API call failed: ${response.status} ${response.statusText}`);
+      }
+      
+      return await response.json();
+    } catch (error) {
+      console.error(`API call error for ${endpoint}:`, error);
+      throw error;
+    }
+  };
+
   /**
    * Main video analysis function
    * Sends the video URL to the backend API for processing
@@ -1028,161 +1246,191 @@ function App() {
       clearInterval(pollingIntervalRef.current);
       pollingIntervalRef.current = null;
     }
+    
+    // Reset failed poll attempts counter
+    failedPollAttemptsRef.current = 0;
 
     try {
-      // Try to extract video ID client-side
+      // First check connectivity to the backend
+      try {
+        await directApiCall('/api/external-check');
+        console.log('Backend connectivity check passed');
+      } catch (error) {
+        console.error('Backend connectivity check failed:', error);
+        setStatusMessage('Error connecting to backend server. Please check your network connection.');
+        throw new Error('Cannot connect to backend server');
+      }
+      
+      // Extract video ID client-side for better UX
       const extractedVideoId = url.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/i)?.[1];
       
       if (extractedVideoId) {
         setVideoId(extractedVideoId);
       } else {
-        console.warn('ANALYSIS: Failed to extract video ID from URL');
+        console.warn('Failed to extract video ID from URL');
       }
       
-      // Construct the direct backend URL
-      const host = window.location.hostname;
-      const protocol = window.location.protocol;
-      const directBackendUrl = `${protocol}//${host}:7081`;
-      
-      console.log(`ANALYSIS: Sending request to analyze video: ${url}`);
-      console.log(`ANALYSIS: Using direct backend URL: ${directBackendUrl}`);
-      
-      // Send the analysis request to the backend
-      const response = await fetch(`${directBackendUrl}/api/analyze-video`, {
+      // Send the analysis request
+      const response = await directApiCall('/api/analyze-video', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
         body: JSON.stringify({ url }),
       });
-
-      // Handle errors from the backend
-      if (!response.ok) {
-        let errorMessage = 'Failed to analyze video';
-        try {
-          const errorData = await response.json();
-          errorMessage = errorData.detail || errorMessage;
-        } catch (e) {
-          console.error('ANALYSIS: Error parsing error response:', e);
-        }
-        throw new Error(errorMessage);
-      }
-
-      // Process the initial response
-      const data = await response.json();
-      console.log('ANALYSIS: Initial response from analyze-video:', data);
+      
+      console.log('Analysis response:', response);
       
       // Get video ID from the response
-      const returnedVideoId = data.videoId;
-      console.log(`ANALYSIS: Using video ID for polling: ${returnedVideoId}`);
+      const returnedVideoId = response.videoId;
+      console.log(`Using video ID for polling: ${returnedVideoId}`);
       
-      // Set the videoId from the response (in case extraction failed)
+      // Set the videoId from the response
       setVideoId(returnedVideoId);
       
       // Start polling for progress updates
-      console.log(`ANALYSIS: Starting progress polling for video ID: ${returnedVideoId}`);
       setIsPollingProgress(true);
       
-      // Do an immediate progress check using the direct backend URL
-      fetchProgressWithUrl(returnedVideoId, directBackendUrl);
-      
+      // Set up the polling interval
+      pollForProgress(returnedVideoId);
     } catch (error) {
-      console.error('ANALYSIS: Error analyzing video:', error);
+      console.error('Error analyzing video:', error);
       setError(error instanceof Error ? error.message : 'Failed to analyze video');
       setIsLoading(false);
       setIsPollingProgress(false);
-      if (pollingIntervalRef.current) {
-        clearInterval(pollingIntervalRef.current);
-      }
     }
   };
 
   /**
-   * Fetch progress with a specific backend URL
-   * Used for the initial progress check after starting analysis
+   * Reusable function to handle progress polling
    */
-  const fetchProgressWithUrl = async (videoIdToCheck: string, backendUrl: string) => {
+  const pollForProgress = (videoId: string) => {
+    console.log(`Setting up polling for ${videoId}`);
+    
+    // Clear any existing polling interval
+    if (pollingIntervalRef.current) {
+      clearInterval(pollingIntervalRef.current);
+    }
+    
+    // Reset failed attempts counter
+    failedPollAttemptsRef.current = 0;
+    
+    // Do an immediate progress check
+    checkVideoProgress(videoId);
+    
+    // Set up a polling interval
+    pollingIntervalRef.current = setInterval(() => {
+      checkVideoProgress(videoId);
+    }, 1500);
+  };
+
+  /**
+   * Function to check video processing progress
+   */
+  const checkVideoProgress = async (videoId: string) => {
+    if (!videoId) return;
+    
     try {
-      // Try the /api/progress endpoint first
-      let response = await fetch(`${backendUrl}/api/progress/${videoIdToCheck}`);
+      console.log(`Checking progress for ${videoId}`);
       
-      // If that fails, try the /progress endpoint
-      if (!response.ok) {
-        console.log('ANALYSIS: API endpoint failed, trying alternate endpoint');
-        response = await fetch(`${backendUrl}/progress/${videoIdToCheck}`);
-      }
+      // Try the /api/progress endpoint
+      const progressData = await directApiCall(`/api/progress/${videoId}`);
       
-      // Handle server errors
-      if (!response.ok) {
-        console.error(`ANALYSIS: Error checking progress: ${response.status} ${response.statusText}`);
-        return;
-      }
+      // Reset failed attempts counter on success
+      failedPollAttemptsRef.current = 0;
       
-      const data = await response.json();
-      
-      // Update UI with progress
-      if (data && typeof data.progress === 'number') {
-        setProgress(data.progress);
+      // Handle the progress data
+      if (progressData) {
+        console.log('Progress data:', progressData);
         
-        if (data.status_message) {
-          setStatusMessage(data.status_message);
-        }
-        
-        // If we have the complete data
-        if (data.progress === 100) {
-          console.log('ANALYSIS: Processing complete, setting data');
-          setIsLoading(false);
-          setIsPollingProgress(false);
+        // If we have progress information
+        if (typeof progressData.progress === 'number') {
+          setProgress(progressData.progress);
           
-          // Clear polling interval
-          if (pollingIntervalRef.current) {
-            clearInterval(pollingIntervalRef.current);
-            pollingIntervalRef.current = null;
+          if (progressData.status_message) {
+            setStatusMessage(progressData.status_message);
           }
           
-          // Update state with received data
-          if (data.steps) setSteps(data.steps);
-          if (data.duration) setVideoDuration(data.duration);
-          if (data.audio_with_clicks_url) setAudioWithClicksUrl(data.audio_with_clicks_url);
-          if (data.waveform_image) setWaveformImage(data.waveform_image);
-          
-          // If the first step exists, jump to it
-          if (data.steps && data.steps.length > 0) {
-            setCurrentStep(0);
-            if (player) {
-              player.seekTo(data.steps[0].start, true);
-            }
+          // Check if processing is complete
+          if (progressData.progress >= 100 || progressData.steps) {
+            handleProcessingComplete(progressData);
           }
-          
-          // Reset any errors
-          setError('');
-        } else if (data.progress < 100) {
-          // Continue polling
-          console.log(`ANALYSIS: Progress update - ${data.progress}% - ${data.status_message}`);
-          
-          // Set up polling interval if not already set
-          if (!pollingIntervalRef.current) {
-            pollingIntervalRef.current = setInterval(() => {
-              fetchProgressWithUrl(videoIdToCheck, backendUrl);
-            }, 2000);
-          }
+        } 
+        // Otherwise, we might have the full result
+        else if (progressData.steps) {
+          handleProcessingComplete(progressData);
         }
       }
     } catch (error) {
-      console.error('ANALYSIS: Error fetching progress:', error);
-      // After several failed attempts, stop polling
+      console.error('Error checking progress:', error);
+      
+      // Increment failed attempts counter
       failedPollAttemptsRef.current = (failedPollAttemptsRef.current || 0) + 1;
       
+      // After several failed attempts, show error but continue polling
       if (failedPollAttemptsRef.current > 3) {
-        console.error('ANALYSIS: Too many failed attempts, stopping polling');
+        setStatusMessage('Error connecting to server. Still trying...');
+      }
+      
+      // After many failures, stop polling
+      if (failedPollAttemptsRef.current > 10) {
+        console.error('Too many failed attempts, stopping polling');
         setStatusMessage('Error connecting to server. Please try again.');
         setIsLoading(false);
+        setIsPollingProgress(false);
+        
         if (pollingIntervalRef.current) {
           clearInterval(pollingIntervalRef.current);
           pollingIntervalRef.current = null;
         }
       }
     }
+  };
+
+  /**
+   * Handle when processing is complete
+   */
+  const handleProcessingComplete = (data: any) => {
+    console.log('Processing complete, setting data');
+    setIsLoading(false);
+    setIsPollingProgress(false);
+    
+    // Clear polling interval
+    if (pollingIntervalRef.current) {
+      clearInterval(pollingIntervalRef.current);
+      pollingIntervalRef.current = null;
+    }
+    
+    // Get the API base URL
+    const host = window.location.hostname;
+    const protocol = window.location.protocol;
+    const apiUrl = `${protocol}//${host}:7081`;
+    
+    // Update state with received data
+    if (data.steps) setSteps(data.steps);
+    if (data.duration) setVideoDuration(data.duration);
+    if (data.audio_with_clicks_url) setAudioWithClicksUrl(`${apiUrl}${data.audio_with_clicks_url}`);
+    if (data.waveform_image) setWaveformImage(data.waveform_image);
+    
+    // Set video URL if available
+    if (data.video_url) {
+      console.log(`Setting video URL: ${apiUrl}${data.video_url}`);
+      setVideoUrl(`${apiUrl}${data.video_url}`);
+      saveToLocalStorage('videoUrl', `${apiUrl}${data.video_url}`);
+    } else {
+      console.log("No video_url provided in data, using YouTube fallback");
+      setVideoUrl('');
+      saveToLocalStorage('videoUrl', '');
+    }
+    
+    // If the first step exists, jump to it
+    if (data.steps && data.steps.length > 0) {
+      setCurrentStep(0);
+      if (player) {
+        player.seekTo(data.steps[0].start, true);
+      }
+    }
+    
+    // Reset any errors
+    setError('');
+    setStatusMessage('Analysis complete');
   };
 
   /**

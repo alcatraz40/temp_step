@@ -5,11 +5,39 @@ import re
 import time
 import yt_dlp
 from pydub import AudioSegment
+import logging.handlers
 
-# Configure logging
-logging.basicConfig(level=logging.INFO, 
-                   format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+# Configure logging - Simplified approach
+LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+os.makedirs(LOG_DIR, exist_ok=True)
+LOG_FILE = os.path.join(LOG_DIR, "simple_youtube.log")
+
+# Create a logger for this module
 logger = logging.getLogger('simple_youtube')
+
+# Check if the logger already has handlers to avoid duplicates
+if not logger.handlers:
+    # Add a file handler
+    file_handler = logging.handlers.RotatingFileHandler(
+        LOG_FILE,
+        maxBytes=10*1024*1024,  # 10MB
+        backupCount=5
+    )
+    file_handler.setLevel(logging.INFO)
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+    logger.setLevel(logging.INFO)
+
+# Test write to log file
+try:
+    with open(LOG_FILE, 'a') as f:
+        f.write("SimpleYouTubeDownloader initialized\n")
+    logger.info("Successfully wrote to simple_youtube log file")
+except Exception as e:
+    logger.error(f"Error writing to simple_youtube log file: {str(e)}")
+
+logger.info("Simple YouTube downloader logging initialized")
 
 class SimpleYouTubeDownloader:
     """
